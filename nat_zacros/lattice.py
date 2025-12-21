@@ -78,7 +78,7 @@ class lattice:
         self.unit_cell_vectors =  np.array([ [1.0,          0.0], 
                                                 [1/2, np.sqrt(3)/2] ])
         self.size = np.array([1, 1])
-        self.cell_vectors = self.unit_cell_vectors.dot(self.size)
+        self.cell_vectors = self.unit_cell_vectors * self.size[:, np.newaxis]
         self.n_site_types = 1
         self.site_type_names = ['fcc']
         self.n_cell_sites = 1
