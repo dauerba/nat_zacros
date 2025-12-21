@@ -188,6 +188,10 @@ class lattice:
 
     def __len__(self):
         """Return total number of lattice sites."""
+        # If coordinates have been loaded from lattice_output.txt, use actual count
+        if len(self.coordinates) > 0:
+            return len(self.coordinates)
+        # Otherwise use calculated size from unit cell
         return self.size[0] * self.size[1] * self.n_cell_sites
 
     def apply_pbc(self, coords):
