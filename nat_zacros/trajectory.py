@@ -68,7 +68,10 @@ class trajectory:
         self.states = []
         self.times = []
         self.energies = []
-        self.folder = Path(dirname) if dirname else None
+        # self.folder = Path(dirname) if dirname else None
+        # This line caused a compatibility problem with pickle
+        self.folder = str(Path(dirname)) if dirname else None
+        self.folder = str(Path(dirname)) if dirname else None
         
     def load_trajectory(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False):
         """
@@ -91,12 +94,7 @@ class trajectory:
             Much faster for energy-only analysis. Recommended to use with step > 1
             for equilibration detection.
         """
-        folder = Path(dirname) if dirname else self.folder
-        
-        if folder is None:
-            print('Error: folder not specified')
-            return
-            
+        folder = Path(dirname) if dirname else Path(self.folder) if self.folder else None
         try:
             if energy_only:
                 # Fast path: scan file for configuration headers only
@@ -302,7 +300,7 @@ class trajectory:
         self.states = []
         
         # Reload only equilibrated portion with full state data
-        folder = Path(dirname) if dirname else self.folder
+        folder = Path(dirname) if dirname else Path(self.folder) if self.folder else None
         
         if folder is None:
             raise RuntimeError('Error: folder not specified')
