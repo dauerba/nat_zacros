@@ -73,7 +73,8 @@ Performance Benchmark (typical system: 10 trajectories, ~100 states each, 14 cor
 from .lattice import lattice
 from .state import state
 from .trajectory import trajectory
-from .rdf import (
+from .simulation_run import SimulationRun
+from .data_processing import (
     compute_rdf_parallel,
     compute_rdf_parallel_states,
     load_trajectories_parallel
@@ -84,6 +85,7 @@ __all__ = [
     'lattice',
     'state',
     'trajectory',
+    'SimulationRun',
     'compute_rdf_parallel',
     'compute_rdf_parallel_states',
     'load_trajectories_parallel'

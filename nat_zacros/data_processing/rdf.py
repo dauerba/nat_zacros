@@ -346,7 +346,7 @@ def _load_single_trajectory_equilibrated(args):
     Parameters
     ----------
     args : tuple
-        (lattice, traj_dir, fraction, method) for loading
+        (lattice, traj_dir, fraction, method, energy_only) for loading
         
     Returns
     -------
@@ -356,19 +356,23 @@ def _load_single_trajectory_equilibrated(args):
     Notes
     -----
     Module-level function for multiprocessing pickling.
+    
+    As of the new implementation, this can now load equilibrated data
+    directly using load_trajectory(fraction=...) instead of the two-phase
+    approach. Both methods work, but direct loading is simpler.
     """
-    from .trajectory import trajectory
+    from ..trajectory import trajectory
     
-    lattice, traj_dir, fraction, method = args
+    lattice, traj_dir, fraction, method, energy_only = args
     
-    # Create trajectory and do two-phase loading
+    # Direct loading with equilibration fraction
     traj = trajectory(lattice, traj_dir)
-    traj.load_trajectory(load_energy=True, energy_only=True)
-    traj.load_equilibrated_states(fraction=fraction, method=method)
+    traj.load_trajectory(fraction=fraction, load_energy=True, energy_only=energy_only)
+    
     return traj
     
 
-def load_trajectories_parallel(lattice, traj_dirs, fraction=0.5, method='fraction', n_workers=None):
+def load_trajectories_parallel(lattice, traj_dirs, fraction=0.5, method='fraction', energy_only=False, n_workers=None):
     """
     Load multiple trajectories in parallel with equilibrated states.
     
@@ -386,9 +390,12 @@ def load_trajectories_parallel(lattice, traj_dirs, fraction=0.5, method='fractio
     traj_dirs : list of Path
         List of trajectory directory paths
     fraction : float, default 0.5
-        Fraction of trajectory to skip for equilibration
+        Fraction of trajectory to keep from the end (for equilibration)
     method : str, default 'fraction'
         Equilibration detection method
+    energy_only : bool, default False
+        If True, only load times and energies (much faster).
+        If False, load full state configurations.
     n_workers : int, optional
         Number of parallel workers. If None, uses all available cores.
         
@@ -432,13 +439,14 @@ def load_trajectories_parallel(lattice, traj_dirs, fraction=0.5, method='fractio
         n_workers = mp.cpu_count()
     
     # Prepare arguments
-    args_list = [(lattice, traj_dir, fraction, method) for traj_dir in traj_dirs]
+    args_list = [(lattice, traj_dir, fraction, method, energy_only) for traj_dir in traj_dirs]
     
     print(f"Loading {len(traj_dirs)} trajectories in parallel using {n_workers} workers...")
     
     # Parallel loading
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         if use_tqdm:
+            # With progress bar
             trajs = list(tqdm(executor.map(_load_single_trajectory_equilibrated, args_list),
                             total=len(traj_dirs),
                             desc="Loading trajectories",

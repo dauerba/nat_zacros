@@ -68,12 +68,17 @@ class trajectory:
         self.states = []
         self.times = []
         self.energies = []
+        #
+
         # self.folder = Path(dirname) if dirname else None
-        # This line caused a compatibility problem with pickle
-        self.folder = str(Path(dirname)) if dirname else None
+        # The line above caused a compatibility problem with pickle
+        # Path objects are not always picklable in all environments
+        # Convert to string for safety
+        #
         self.folder = str(Path(dirname)) if dirname else None
         
-    def load_trajectory(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False):
+        
+    def load_trajectory(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False, fraction=1.0):
         """
         Load states from history_output.txt.
         
@@ -93,11 +98,36 @@ class trajectory:
             If True, only load time and energy without parsing full state configurations.
             Much faster for energy-only analysis. Recommended to use with step > 1
             for equilibration detection.
+        fraction : float, default 1.0
+            Fraction of trajectory to keep from the end. Use to skip equilibration:
+            - fraction=1.0 loads full trajectory (default)
+            - fraction=0.5 loads last 50% of trajectory (skips first 50% for equilibration)
+            - fraction=0.7 loads last 70% of trajectory (skips first 30%)
+            Applied after determining total trajectory length, before loading states.
+            
+        Examples
+        --------
+        >>> # Load full trajectory with energy only to determine equilibration
+        >>> traj = trajectory(lat, dirname)
+        >>> traj.load_trajectory(load_energy=True, energy_only=True)
+        >>> # ... analyze energy vs time to determine equilibration fraction ...
+        >>> 
+        >>> # Reload with equilibrated portion only (last 50%)
+        >>> traj = trajectory(lat, dirname)
+        >>> traj.load_trajectory(fraction=0.5)
         """
         folder = Path(dirname) if dirname else Path(self.folder) if self.folder else None
         try:
             if energy_only:
                 # Fast path: scan file for configuration headers only
+                # First pass: count total configurations if fraction < 1.0
+                if fraction < 1.0:
+                    with open(folder / 'history_output.txt', 'r') as f:
+                        n_total = sum(1 for line in f if 'configuration' in line)
+                    # Calculate start index to skip equilibration
+                    start = max(start, int((1.0 - fraction) * n_total))
+                
+                # Second pass: load data
                 with open(folder / 'history_output.txt', 'r') as f:
                     idx = 0
                     for line in f:
@@ -125,24 +155,46 @@ class trajectory:
                 with open(folder / 'history_output.txt', 'r') as f:
                     content = f.readlines()
                     
-                # Format: header lines, then blocks of (nsites+1) lines per state
+                # Auto-detect header size by finding first 'configuration' line
+                # This is more robust than assuming a fixed number of header lines
+                n_header_lines = None
+                for i, line in enumerate(content):
+                    if 'configuration' in line:
+                        n_header_lines = i
+                        break
+                
+                if n_header_lines is None:
+                    raise RuntimeError(
+                        f"No 'configuration' keyword found in {folder / 'history_output.txt'}.\n"
+                        f"File may be empty or corrupted."
+                    )
+                
                 nsites = len(self.lattice)
-                n_states = (len(content) - 7) // (nsites + 1)
+                n_states = (len(content) - n_header_lines) // (nsites + 1)
+                
+                # Apply fraction to determine start index (skip equilibration)
+                if fraction < 1.0:
+                    start = max(start, int((1.0 - fraction) * n_states))
                 
                 if end is None:
                     end = n_states
                 
                 for idx in range(start, min(end, n_states), step):
                     # Parse configuration header line
-                    header_line = content[7 + idx * (nsites + 1)]
+                    header_line = content[n_header_lines + idx * (nsites + 1)]
                     
                     if 'configuration' in header_line:
                         parts = header_line.split()
                         time = float(parts[3])
                         energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
                     else:
-                        time = idx
-                        energy = 0.0
+                        raise RuntimeError(
+                            f"Error parsing history_output.txt at state {idx}:\n"
+                            f"Expected 'configuration' keyword not found in header line.\n"
+                            f"Line content: '{header_line.strip()}'\n"
+                            f"This indicates either file corruption or an incompatible Zacros output format.\n"
+                            f"File: {folder / 'history_output.txt'}"
+                        )
                     
                     # Load full state configuration
                     st = state(self.lattice)
