@@ -2,3 +2,5 @@
 
 # Import all functions and classes from rdf.py
 from .rdf import *
+# Import parallel loading functions
+from .parallel_loading import load_trajectories_parallel

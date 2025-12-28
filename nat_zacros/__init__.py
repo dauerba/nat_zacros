@@ -74,6 +74,8 @@ from .lattice import lattice
 from .state import state
 from .trajectory import trajectory
 from .simulation_run import SimulationRun
+
+# Import parallel and RDF functions from data_processing
 from .data_processing import (
     compute_rdf_parallel,
     compute_rdf_parallel_states,
