@@ -13,7 +13,7 @@ class state:
     """
     Adsorbate configuration on a surface lattice.
     
-    Represents a snapshot of which sites are occupied by which species
+    Represents a snapshot of which sites are occupied and by which species
     at a particular moment in a Zacros simulation.
     
     Attributes
@@ -41,7 +41,7 @@ class state:
         
     Methods
     -------
-    get_state(idx=0)
+    load_state(idx=0)
         Read configuration from history_output.txt
     get_coverage()
         Calculate fraction of occupied sites
@@ -89,11 +89,14 @@ class state:
         self.dentation =  np.zeros(nsites, dtype=int)
 
         if dirname is not None:
-            self.folder = Path(dirname) 
-            self.get_state()
+            self.folder = Path(dirname)
+            self.load_state()
+        if dirname is not None:
+            self.folder = Path(dirname)
+            self.load_state()
 
 
-    def get_state(self, idx=0):
+    def load_state(self, idx=0):
         """
         Read configuration from history_output.txt file.
         

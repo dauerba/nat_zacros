@@ -37,8 +37,6 @@ class trajectory:
         Get energy as function of time
     estimate_equilibration(fraction=0.5)
         Estimate equilibration index
-    get_equilibrated_slice(fraction=0.5)
-        Return trajectory with only equilibrated states
     load_equilibrated_states(fraction=0.5)
         Reload only equilibrated portion with full state data
     get_g_ref(r_max, dr)
@@ -199,7 +197,7 @@ class trajectory:
                     # Load full state configuration
                     st = state(self.lattice)
                     st.folder = folder
-                    st.get_state(idx=idx)
+                    st.load_state(idx=idx)
                     self.states.append(st)
                     self.times.append(time)
                     self.energies.append(energy)
@@ -268,38 +266,6 @@ class trajectory:
         else:
             raise NotImplementedError(f"Method '{method}' not yet implemented")
             
-    def get_equilibrated_slice(self, fraction=0.5, method='fraction'):
-        """
-        Return a new trajectory containing only equilibrated states.
-        
-        Parameters
-        ----------
-        fraction : float, default 0.5
-            Fraction of trajectory to skip (passed to estimate_equilibration)
-        method : str, default 'fraction'
-            Method for equilibration detection
-            
-        Returns
-        -------
-        trajectory
-            New trajectory object with equilibrated states only
-            
-        Examples
-        --------
-        >>> traj = trajectory(lat, dirname)
-        >>> traj.load_trajectory()
-        >>> traj_eq = traj.get_equilibrated_slice(fraction=0.5)
-        >>> r, g = traj_eq.get_rdf()  # RDF only from equilibrated data
-        """
-        eq_idx = self.estimate_equilibration(fraction=fraction, method=method)
-        
-        # Create new trajectory with sliced data
-        traj_eq = trajectory(self.lattice, self.folder)
-        traj_eq.states = self.states[eq_idx:]
-        traj_eq.times = self.times[eq_idx:]
-        traj_eq.energies = self.energies[eq_idx:]
-        
-        return traj_eq
         
     def load_equilibrated_states(self, fraction=0.5, method='fraction', dirname=None):
         """
@@ -363,7 +329,7 @@ class trajectory:
             for idx in range(eq_idx, len(self.times)):
                 st = state(self.lattice)
                 st.folder = folder
-                st.get_state(idx=idx)
+                st.load_state(idx=idx)
                 self.states.append(st)
                 
         except Exception as e:
@@ -519,7 +485,7 @@ class trajectory:
                 # Histogram
                 counts, _ = np.histogram(valid_dists, bins=bin_edges)
             else:
-                # Original nested loop implementation
+                # nested loop implementation
                 for i in range(n_occupied - 1):
                     for j in range(i + 1, n_occupied):
                         dist = self.lattice.minimum_image_distance(
@@ -539,7 +505,7 @@ class trajectory:
                 g_r += counts / n_occupied / avg_coverage
         
         # Normalize by number of states
-        # Factor of 2 for unordered pairs
+        # Factor of 2 to account for unordered pairs
         if len(self.states) > 0:
             g_r = 2 * g_r / len(self.states)
                     
