@@ -93,17 +93,11 @@ __all__ = [
     'load_trajectories_parallel'
 ]
 
-import importlib.util
 import os
-# Package metadata
 try:
-    # Try to import the version from the generated _version.py (setuptools_scm)
-    from ._version import __version__
-except ImportError:
-    # If not present, try to get version from pkg_resources (fallback for editable installs)
-    try:
-        import pkg_resources
-        __version__ = pkg_resources.get_distribution("nat-zacros").version
-    except Exception:
-        __version__ = "unknown"
+    from setuptools_scm import get_version
+    pkg_root = os.path.dirname(os.path.dirname(__file__))
+    __version__ = get_version(root=pkg_root)
+except Exception:
+    __version__ = "unknown"
 __author__ = 'akandra, dauerba'
