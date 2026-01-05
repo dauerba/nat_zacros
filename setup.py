@@ -5,8 +5,9 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='nat-zacros',
-    version='1.0.0',
-    author='akandra, dauerba',
+    use_scm_version=True,
+    setup_requires=['setuptools_scm'],
+    author='dauerba, akandra',
     author_email='your-email@example.com',  # Update with actual email
     description='Analysis package for Zacros kinetic Monte Carlo simulations',
     long_description=long_description,
