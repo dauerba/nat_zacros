@@ -23,6 +23,14 @@ git clone https://github.com/dauerba/nat_zacros.git
 cd nat_zacros
 pip install -e .
 ```
+  If the virtual environment is set by conda then
+follow recommendations from: https://github.com/conda/conda/issues/5861
+```bash
+git clone https://github.com/dauerba/nat_zacros.git
+cd nat_zacros
+VIRTUAL_ENV = $CONDA_PREFIX
+pip install --src $VIRTUAL_ENV/src -e .
+```
 
 ## Quick Start
 
