@@ -113,6 +113,7 @@ class lattice:
 
         if self.folder is None:
             print('nothing to get: lattice folder not defined')
+            print('check editable install')
             return
 
         self.folder = Path(self.folder)
