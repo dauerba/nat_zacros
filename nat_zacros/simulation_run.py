@@ -160,48 +160,58 @@ class SimulationRun:
             'interactions': '-'.join(matching_entry[5][1:]),  # Join interaction names
         }
         
-    def load_trajectories(self, use_cache=True, parallel=True):
+    
+    def load_trajectories(self, fraction=1.0, use_cache=True, parallel=True, energy_only=False, verbose=False):
         """
         Load trajectory data with caching support.
-        
+
         Parameters
         ----------
+        fraction : float, default 1.0
+            Fraction of trajectory to keep from the end for equilibration.
         use_cache : bool, default True
             If True, load from cache file if available, otherwise parse and cache.
             If False, always parse from history_output.txt files.
         parallel : bool, default True
             If True, use parallel loading (recommended for full-state data).
             If False, use sequential loading.
-        
+        energy_only : bool, default False
+            If True, only load energy data from trajectories (faster, less memory).
+            If False, load full trajectory data.
+        verbose : bool, default False
+            If True, print detailed loading information.
+
         Notes
         -----
         Cache files are stored as:
         - Trajectories: results/{run_number}_trajs_eq.pkl
-        
+
         The loaded trajectories use the fraction specified during initialization.
         """
         cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
-        
+
         # Try loading from cache
         if use_cache and cache_file.exists():
-            print(f"Loading trajectories from cache: {cache_file.name}")
+            if verbose: print(f"Loading trajectories from cache: {cache_file.name}")
             with open(cache_file, 'rb') as f:
                 self.trajectories = pickle.load(f)
-            print(f"Loaded {len(self.trajectories)} cached trajectories")
+            if verbose: print(f"Loaded {len(self.trajectories)} cached trajectories")
             return
-        
+
         # Load trajectories from files
-        print(f"Loading {len(self.traj_dirs)} trajectories...")
-        print(f"  Equilibration fraction: {self.fraction} (keeping last {self.fraction*100:.0f}%)")
-        print(f"  Loading mode: {'parallel' if parallel else 'sequential'}")
-        
+        if verbose:
+            print(f"Loading {len(self.traj_dirs)} trajectories...")
+            print(f"  Equilibration fraction: {self.fraction} (keeping last {self.fraction*100:.0f}%)")
+            print(f"  Loading mode: {'parallel' if parallel else 'sequential'}")
+            print(f"  Energy only: {energy_only}")
+
         if parallel:
             # Use parallel loading
             self.trajectories = load_trajectories_parallel(
-                self.lattice, 
-                self.traj_dirs, 
+                self.lattice,
+                self.traj_dirs,
                 fraction=self.fraction,
-                energy_only=False,
+                energy_only=energy_only,
                 n_workers=None
             )
         else:
@@ -209,21 +219,21 @@ class SimulationRun:
             self.trajectories = []
             for traj_dir in self.traj_dirs:
                 traj = trajectory(self.lattice, traj_dir)
-                traj.load_trajectory(fraction=self.fraction, load_energy=True, energy_only=False)
+                traj.load_trajectory(fraction=self.fraction, load_energy=True, energy_only=energy_only)
                 self.trajectories.append(traj)
-        
-        print(f"Loaded {len(self.trajectories)} trajectories")
-        print(f"  States per trajectory: {len(self.trajectories[0].states)}")
-        print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
-        
+        if verbose:
+            print(f"Loaded {len(self.trajectories)} trajectories")
+            print(f"  States per trajectory: {len(self.trajectories[0].states)}")
+            print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
+
         # Save to cache
         if use_cache:
-            print(f"Saving to cache: {cache_file.name}")
+            if verbose: print(f"Saving to cache: {cache_file.name}")
             with open(cache_file, 'wb') as f:
                 pickle.dump(self.trajectories, f)
             size_mb = cache_file.stat().st_size / 1024**2
-            print(f"Cache saved: {size_mb:.1f} MB")
-    
+            if verbose: print(f"Cache saved: {size_mb:.1f} MB")
+
     def get_ensemble_rdf(self, r_max=40.0, dr=0.1):
         """
         Compute ensemble-averaged radial distribution function.
@@ -293,6 +303,17 @@ class SimulationRun:
         """
         Compute ensemble-averaged energy as function of time.
         
+        Uses a two-stage averaging approach for robustness:
+        1. Intra-trajectory: Average all energy measurements within each time bin
+           for each trajectory independently
+        2. Inter-trajectory: Average the binned results across all trajectories
+        
+        This approach:
+        - Ensures equal weighting of trajectories (each contributes one value per bin)
+        - Uses all available data points (no interpolation artifacts)
+        - Handles uneven sampling naturally (bins with more data get better statistics)
+        - Preserves measured values without artificial smoothing
+        
         Parameters
         ----------
         n_bins : int, default 100
@@ -305,12 +326,32 @@ class SimulationRun:
         energy_avg : ndarray
             Ensemble-averaged energy at each time
         energy_std : ndarray
-            Standard deviation of energy across trajectories
+            Standard deviation of energy across trajectories (trajectory-to-trajectory variation)
         
         Raises
         ------
         RuntimeError
             If trajectories have not been loaded yet
+        
+        Notes
+        -----
+        Alternative approaches and their trade-offs:
+        
+        1. **Interpolation**: Interpolate each trajectory to common time points, then average.
+           - Pros: Simple, guaranteed uniform sampling
+           - Cons: Creates artificial values, smooths real fluctuations, wastes data
+        
+        2. **Global binning**: Bin all trajectories together with count tracking.
+           - Pros: Uses all data, no interpolation
+           - Cons: Trajectories with more samples get higher weight (unequal weighting)
+        
+        3. **Two-stage (this method)**: Bin within each trajectory, then ensemble average.
+           - Pros: Equal trajectory weighting + uses all data + no artificial smoothing
+           - Cons: Slightly more complex implementation
+        
+        The two-stage approach is preferred for ensemble statistics as it combines the
+        benefits of both interpolation (equal trajectory weights) and binning (uses all
+        available data without artificial smoothing).
         """
         if len(self.trajectories) == 0:
             raise RuntimeError(
@@ -321,35 +362,40 @@ class SimulationRun:
         end_time = min([traj.times[-1] for traj in self.trajectories])
         start_time = max([traj.times[0] for traj in self.trajectories])
         
-        # Create time bins
+        # Create time bins for discretization
         time_bins = np.linspace(start_time, end_time, n_bins + 1)
         time_centers = 0.5 * (time_bins[:-1] + time_bins[1:])
         
-        # Accumulate energy from each trajectory
+        # STAGE 1: Intra-trajectory averaging
+        # For each trajectory, bin its energy measurements and average within bins
         energy_hists = []
         for traj in self.trajectories:
             times, energies = traj.get_energy_vs_time()
             
-            # Bin the energies
+            # Initialize binned energy and sample counts for this trajectory
             energy_hist = np.zeros(n_bins)
             counts = np.zeros(n_bins)
             
+            # Accumulate energy measurements into bins
             for t, energy in zip(times, energies):
                 if start_time <= t <= end_time:
                     bin_idx = np.digitize(t, time_bins, right=False) - 1
                     if 0 <= bin_idx < n_bins:
                         energy_hist[bin_idx] += energy
-                        counts[bin_idx] += 1
+                        counts[bin_idx] += 1  # Track number of samples per bin
             
-            # Average within bins (avoid division by zero)
+            # Average within each bin (multiple measurements → single value per bin)
+            # This gives us one representative energy value per time bin for THIS trajectory
             with np.errstate(divide='ignore', invalid='ignore'):
                 energy_hist = np.where(counts > 0, energy_hist / counts, np.nan)
             
             energy_hists.append(energy_hist)
         
-        # Ensemble average (ignoring NaN values)
+        # STAGE 2: Inter-trajectory (ensemble) averaging
+        # Each trajectory now contributes exactly one value per time bin
+        # Average across trajectories with equal weighting
         energy_avg = np.nanmean(energy_hists, axis=0)
-        energy_std = np.nanstd(energy_hists, axis=0)
+        energy_std = np.nanstd(energy_hists, axis=0)  # Trajectory-to-trajectory variation
         
         return time_centers, energy_avg, energy_std
     
