@@ -62,13 +62,12 @@ class SimulationRun:
         fraction : float, default 0.5
             Fraction of trajectory to keep from the end for equilibration.
             - 1.0 = keep full trajectory
-            - 0.5 = keep last 50% (discard first 50% as equilibration)
             - 0.7 = keep last 70% (discard first 30%)
+            - 0.5 = keep last 50% (discard first 50%)
         
         Notes
         -----
         The fraction should be determined from exploratory energy-only analysis
-        before creating the SimulationRun object.
         """
         self.run_dir = Path(run_dir)
         self.fraction = fraction

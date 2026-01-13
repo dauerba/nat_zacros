@@ -362,7 +362,7 @@ class trajectory:
     # See module docstring for complete performance analysis.
     # ==========================================================================
     
-    def get_g_ref(self, r_max=None, dr=0.1):
+    def get_g_ref(self, r_max=None, dr=0.1, vectorized=True):
         """
         Calculate reference RDF for full lattice (all sites, coverage=1).
         
@@ -375,6 +375,8 @@ class trajectory:
             Maximum distance for RDF
         dr : float, default 0.1
             Bin width in Angstroms
+        vectorized : bool, default True
+            Use vectorized distance calculation for all pairs
             
         Returns
         -------
@@ -395,26 +397,30 @@ class trajectory:
         n_bins = int(np.ceil(r_max / dr))
         bin_edges = np.linspace(0.0, r_max, n_bins + 1)
         r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-        counts = np.zeros(n_bins, dtype=int)
-        
         # Get all lattice site coordinates
         all_coords = self.lattice.coordinates
         n_sites = len(all_coords)
-        
-        # Calculate all pairwise distances with PBC
-        for i in range(n_sites - 1):
-            for j in range(i + 1, n_sites):
-                dist = self.lattice.minimum_image_distance(
-                    all_coords[i], all_coords[j]
-                )
-                if 0 < dist <= r_max:
-                    bin_idx = int(dist / dr)
-                    if bin_idx < n_bins:
-                        counts[bin_idx] += 1
-        
+        counts = np.zeros(n_bins, dtype=int)
+        if vectorized:
+            # Vectorized calculation using pairwise_distances_pbc
+            dists_matrix = self.lattice.pairwise_distances_pbc(all_coords)
+            mask = np.triu(np.ones(dists_matrix.shape, dtype=bool), k=1)
+            dists = dists_matrix[mask]
+            valid_dists = dists[(dists > 0) & (dists <= r_max)]
+            counts, _ = np.histogram(valid_dists, bins=bin_edges)
+        else:
+            # Original nested loop
+            for i in range(n_sites - 1):
+                for j in range(i + 1, n_sites):
+                    dist = self.lattice.minimum_image_distance(
+                        all_coords[i], all_coords[j]
+                    )
+                    if 0 < dist <= r_max:
+                        bin_idx = int(dist / dr)
+                        if bin_idx < n_bins:
+                            counts[bin_idx] += 1
         # Normalize: 2 * counts / n_sites (factor 2 for unordered pairs)
         g_ref = 2.0 * counts / n_sites
-        
         return r_bins, g_ref
         
     def get_rdf(self, r_max=None, dr=0.1, g_ref=None, vectorized=True):
