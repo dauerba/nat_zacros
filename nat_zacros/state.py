@@ -20,7 +20,7 @@ class state:
     ----------
     lattice : lattice object
         Reference to the underlying surface lattice
-    folder : Path or None
+    folder : str (must be str for pickle compatibility) or None
         Directory containing history_output.txt
     n_gas_species : int
         Number of gas-phase species
@@ -89,10 +89,10 @@ class state:
         self.dentation =  np.zeros(nsites, dtype=int)
 
         if dirname is not None:
-            self.folder = Path(dirname)
+            self.folder = str(Path(dirname))
             self.load_state()
         if dirname is not None:
-            self.folder = Path(dirname)
+            self.folder = str(Path(dirname))
             self.load_state()
 
 
@@ -115,10 +115,9 @@ class state:
         
         # Read configuration from history_output.txt file
 
-        self.folder = Path(self.folder)
-
+        folder_p = Path(self.folder)
         try:
-            with open(self.folder / 'history_output.txt', 'r') as f:
+            with open(folder_p / 'history_output.txt', 'r') as f:
                 content = f.readlines()    
 
             nsites = len(self.lattice)
@@ -128,7 +127,7 @@ class state:
                 self.occupation[site] = int(parts[2])
                 self.dentation[site]  = int(parts[3])
         except:
-            print(f'cannot read history_output.txt from {str(self.folder)}')
+            print(f'cannot read history_output.txt from {self.folder}')
 
     
     def get_coverage(self):

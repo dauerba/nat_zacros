@@ -279,7 +279,7 @@ class SimulationRun:
 
         # Save to cache
         if use_cache:
-            if verbose: print(f"Saving to cache: {cache_file.name}")
+            if verbose: print(f"Saving to cache: {cache_file}")
             with open(cache_file, 'wb') as f:
                 pickle.dump(self.trajectories, f)
             size_mb = cache_file.stat().st_size / 1024**2

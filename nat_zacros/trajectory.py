@@ -24,7 +24,7 @@ class trajectory:
         Time points for each state
     energies : ndarray
         Total energy for each state
-    folder : Path
+    folder : str (must be str for pickle compatibility)
         Directory containing trajectory data
         
     Methods
@@ -114,19 +114,19 @@ class trajectory:
         >>> traj = trajectory(lat, dirname)
         >>> traj.load_trajectory(fraction=0.5)
         """
-        folder = Path(dirname) if dirname else Path(self.folder) if self.folder else None
+        folder_p = Path(dirname) if dirname else Path(self.folder) if self.folder else None
         try:
             if energy_only:
                 # Fast path: scan file for configuration headers only
                 # First pass: count total configurations if fraction < 1.0
                 if fraction < 1.0:
-                    with open(folder / 'history_output.txt', 'r') as f:
+                    with open(folder_p / 'history_output.txt', 'r') as f:
                         n_total = sum(1 for line in f if 'configuration' in line)
                     # Calculate start index to skip equilibration
                     start = max(start, int((1.0 - fraction) * n_total))
                 
                 # Second pass: load data
-                with open(folder / 'history_output.txt', 'r') as f:
+                with open(folder_p / 'history_output.txt', 'r') as f:
                     idx = 0
                     for line in f:
                         if 'configuration' in line:
@@ -150,7 +150,7 @@ class trajectory:
                             idx += 1
             else:
                 # Full path: load complete state configurations
-                with open(folder / 'history_output.txt', 'r') as f:
+                with open(folder_p / 'history_output.txt', 'r') as f:
                     content = f.readlines()
                     
                 # Auto-detect header size by finding first 'configuration' line
@@ -163,7 +163,7 @@ class trajectory:
                 
                 if n_header_lines is None:
                     raise RuntimeError(
-                        f"No 'configuration' keyword found in {folder / 'history_output.txt'}.\n"
+                        f"No 'configuration' keyword found in {folder_p / 'history_output.txt'}.\n"
                         f"File may be empty or corrupted."
                     )
                 
@@ -191,19 +191,19 @@ class trajectory:
                             f"Expected 'configuration' keyword not found in header line.\n"
                             f"Line content: '{header_line.strip()}'\n"
                             f"This indicates either file corruption or an incompatible Zacros output format.\n"
-                            f"File: {folder / 'history_output.txt'}"
+                            f"File: {folder_p / 'history_output.txt'}"
                         )
                     
                     # Load full state configuration
                     st = state(self.lattice)
-                    st.folder = folder
+                    st.folder = str(folder_p)
                     st.load_state(idx=idx)
                     self.states.append(st)
                     self.times.append(time)
                     self.energies.append(energy)
                 
         except Exception as e:
-            print(f'Error loading trajectory from {str(folder)}: {e}')
+            print(f'Error loading trajectory from {str(folder_p)}: {e}')
             
         self.times = np.array(self.times)
         self.energies = np.array(self.energies)

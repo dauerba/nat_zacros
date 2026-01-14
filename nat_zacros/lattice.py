@@ -15,7 +15,7 @@ class lattice:
     
     Attributes
     ----------
-    folder : Path or None
+    folder : str (must be str for pickle compatibility) or None
         Directory containing lattice_input.dat and lattice_output.txt
     type : str
         Lattice type (e.g., 'periodic_cell')
@@ -94,7 +94,7 @@ class lattice:
         self.site_nns = [ np.array([0,0,0,0,0,0]) ]
 
         if dirname is not None:
-            self.folder = Path(dirname) 
+            self.folder = str(Path(dirname))
             self.get_lattice()
 
     def get_lattice(self):
@@ -115,12 +115,12 @@ class lattice:
             print('nothing to get: lattice folder not defined')
             return
 
-        self.folder = Path(self.folder)
+        folder_p = Path(self.folder)
         #
         # Read lattice input file
         #
         try:
-            with open(self.folder / 'lattice_input.dat', 'r') as f:
+            with open(folder_p / 'lattice_input.dat', 'r') as f:
                 content = [line for line in f.readlines() if (line.strip() and not line.startswith('#'))]
             content = [line.split('#')[0] for line in content]
             for i,line in enumerate(content):
@@ -155,7 +155,7 @@ class lattice:
                        self.neighboring_structure.append( (int(parts[0].split('-')[0]), int(parts[0].split('-')[1]), parts[1]) )
                        j += 1
         except:
-            print(f'cannot read lattice_input.dat from {str(self.folder)}')
+            print(f'cannot read lattice_input.dat from {self.folder}')
 
         #
         # Read lattice output file
@@ -166,7 +166,7 @@ class lattice:
         site_nns = []
 
         try:
-            with open(self.folder / 'lattice_output.txt') as f:
+            with open(folder_p / 'lattice_output.txt') as f:
                 v1 = f.readline().split()[1:3]
                 v2 = f.readline().split()[1:3]
                 self.cell_vectors = np.array([v1, v2], dtype=float)
@@ -179,7 +179,7 @@ class lattice:
                     site_nns.append(np.array([ int(ls[5+i])-1 for i in range(int(ls[4]))], dtype=int))
 
         except:
-            print(f'cannot read lattice_output.txt from {str(self.folder)}')
+            print(f'cannot read lattice_output.txt from {self.folder}')
 
         self.coordinates = np.array(site_coordinates, dtype=float)
         self.site_types = np.array(site_types, dtype=int)
