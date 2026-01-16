@@ -76,6 +76,7 @@ from .lattice import lattice
 from .state import state
 from .trajectory import trajectory
 from .simulation_run import SimulationRun
+from .simulation_set import SimulationSet
 
 # Import parallel and RDF functions from data_processing
 # from .data_processing import (
@@ -89,9 +90,7 @@ __all__ = [
     'state',
     'trajectory',
     'SimulationRun',
-#    'compute_rdf_parallel',
-#    'compute_rdf_parallel_states',
-    'load_trajectories_parallel'
+    'SimulationSet'
 ]
 
 import os
@@ -102,38 +101,3 @@ try:
 except Exception:
     __version__ = "unknown"
 __author__ = 'akandra, dauerba'
-
-def load_log_file(jobs_dir, log_file='jobs.log'):
-    """
-    Load and parse the Zacros jobs.log file.
-    Parameters
-    ----------
-    jobs_dir : str or Path
-        Path to the jobs directory.
-    log_file : str, optional
-        Name of the log file (default is 'jobs.log').
-    Returns
-    -------
-    list of tuples
-        Parsed log entries.
-    """
-    log_file_name = Path(jobs_dir) / log_file
-    log_entries = []
-    try:
-        with open(log_file_name, 'r') as f:
-            log_header = f.readline().split()  # Read header
-            log_entries = [json.loads(line) for line in f if line.strip()]
-    except:
-        raise FileNotFoundError(f"Log file not found: {log_file_name}")
-
-    run_numbers =  [entry[0] for entry in log_entries]
-    run_name =     [entry[1] for entry in log_entries]
-    lat_dims =     [entry[2] for entry in log_entries]
-    n_cells =      [entry[2][0]*entry[2][1] for entry in log_entries]
-    n_ads =        [entry[3][0] for entry in log_entries]
-    temperatures = [entry[4] for entry in log_entries]
-    interactions = [entry[5] for entry in log_entries]
-    coverages =    [n_ads[i]/n_cells[i] for i in range(len(n_ads))]
-    run_dirs  =    [jobs_dir / f"{run_num}" for run_num in run_numbers]
-
-    return run_dirs
