@@ -7,6 +7,7 @@ collections of trajectories from a single Zacros simulation run.
 
 import json
 import pickle
+import subprocess
 import numpy as np
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
@@ -33,12 +34,14 @@ class SimulationRun:
             - 1.0 = keep full trajectory (default)
             - 0.7 = keep last 70% (discard first 30%)
             - 0.5 = keep last 50% (discard first 50%)
+    is_valid : bool
+        True if something wrong with run data (corrupted, missing etc.)
     lattice : lattice
         Shared lattice object for all trajectories
     metadata : dict
         Simulation metadata (temperature, coverage, interactions, etc.)
     results_dir : Path
-        Directory for storing cache files
+        Directory for storing cache and results files
     run_dir : Path
         Directory containing trajectory folders (traj_1, traj_2, ...)
     trajectories : list of trajectory
@@ -51,11 +54,12 @@ class SimulationRun:
     >>> # Typical workflow
     >>> run = SimulationRun('fn_3leed/jobs/1')
     >>> run.load_trajectories()  # Uses cache if available
+    >>> run.is_valid  # Check if run data is valid
     >>> r, g, g_std = run.get_ensemble_rdf(r_max=40.0, dr=0.1)
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
     """
-    
-    def __init__(self, run_dir):
+
+    def __init__(self, run_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
         """
         Initialize a SimulationRun.
         
@@ -64,68 +68,93 @@ class SimulationRun:
         run_dir : str or Path
             Path to simulation run directory (e.g., 'fn_3leed/jobs/1')
             This directory should contain traj_1, traj_2, ... subdirectories
-        
+        metadata : dict, optional
+            Pre-loaded metadata (if available)
+        results_dirname : str, optional
+            Name of the results directory (default: 'results')
+
         Notes
         -----
         The fraction should be determined from exploratory energy-only analysis
         """
 
+        self.is_valid = True  # Assume run is valid initially
         self.eq_method = 'fraction'  # Default equilibration method
         self.run_dir = Path(run_dir)
         self.fraction = 1.0  # Default to full trajectory
         
         # Validate run directory exists
         if not self.run_dir.exists():
-            raise FileNotFoundError(f"Run directory not found: {self.run_dir}")
+            # untar jobs directory
+            tgz_file = self.run_dir.parent / self.run_dir.name / '.tgz'
+            print(f"Extracting trajectories from {tgz_file.as_posix()} ...")
+            try:
+                subprocess.run(['tar', '-xf', f'{tgz_file}', '-C', self.run_dir.parent.as_posix()])
+            except Exception as e:
+                print(f"Error extracting jobs: {e}")
+                print(f"Data for run {self.run_dir.name} is invalid.")
+                self.is_valid = False
+            else:
+                print(f"Extraction complete.")
+
+        else:
         
-        # Auto-detect trajectory directories
-        self.traj_dirs = sorted([
-            d for d in self.run_dir.iterdir() 
-            if d.is_dir() and d.name.startswith('traj_')
-        ])
+            # Auto-detect trajectory directories
+            self.traj_dirs = sorted([
+                d for d in self.run_dir.iterdir() 
+                if d.is_dir() and d.name.startswith('traj_')
+            ])
         
-        if len(self.traj_dirs) == 0:
-            raise ValueError(
-                f"No trajectory directories (traj_*) found in {self.run_dir}\n"
-                f"Expected directories like traj_1, traj_2, etc."
-            )
+            if len(self.traj_dirs) == 0:
+                print(f"No trajectory directories (traj_*) found in {self.run_dir}")
+                self.is_valid = False
+            
+            else:
+                
+                # Create lattice from first trajectory
+                self.lattice = lattice(self.traj_dirs[0])
+                if not self.lattice.is_defined:
+                    print(f"Cannot load lattice data for run {self.run_dir.name}")
+                    self.is_valid = False
+                else:
+                
+                    # Initialize trajectory list (filled by load_trajectories)
+                    self.trajectories = []
         
-        # Create lattice from first trajectory
-        self.lattice = lattice(self.traj_dirs[0])
+                    # Set up results directory (../../results/ from run_dir)
+                    self.results_dir = self.run_dir.parent.parent / results_dirname
+                    self.results_dir.mkdir(exist_ok=True)
         
-        # Initialize trajectory list (filled by load_trajectories)
-        self.trajectories = []
+                    # Load metadata from log file if not provided
+                    if metadata is not None:
+                        self.metadata = metadata
+                    else:
+                        self._load_metadata(log_file)
         
-        # Set up results directory (../../results/ from run_dir)
-        jobs_dir = self.run_dir.parent
-        interaction_dir = jobs_dir.parent
-        self.results_dir = interaction_dir / 'results'
-        self.results_dir.mkdir(exist_ok=True)
-        
-        # Load metadata from jobs.log
-        self._load_metadata()
-        
-    def _load_metadata(self):
+    def _load_metadata(self, log_file):
         """
-        Load simulation metadata from jobs.log file.
+        Load simulation metadata from log file.
         
-        Parses the jobs.log file to extract temperature, coverage, interactions,
+        Parses the log file to extract temperature, coverage, interactions,
         and lattice dimensions for this specific run.
+
+        Parameters
+        ----------
+        log_file : str
+            Name of the log file (default: 'jobs.log')
         
         Raises
         ------
         FileNotFoundError
-            If jobs.log is not found in parent directory
+            If log file is not found in the parent directory
         ValueError
-            If run number is not found in jobs.log
+            If run number is not found in log file
         """
-        jobs_log = self.run_dir.parent / 'jobs.log'
-        
+        jobs_log = self.run_dir.parent / log_file
         if not jobs_log.exists():
-            raise FileNotFoundError(
-                f"jobs.log not found at: {jobs_log}\n"
-                f"SimulationRun requires jobs.log in the parent directory."
-            )
+            print(f"log file {jobs_log} not found. Cannot load metadata.")
+            self.is_valid = False
+            return
         
         # Extract run number from directory name (e.g., '1' from 'fn_3leed/jobs/1')
         run_number = int(self.run_dir.name)
@@ -143,11 +172,13 @@ class SimulationRun:
                 break
         
         if matching_entry is None:
-            raise ValueError(
+            print(
                 f"Run number {run_number} not found in {jobs_log}\n"
                 f"Available run numbers: {[e[0] for e in log_entries]}"
             )
-        
+            self.is_valid = False
+            return
+
         # Extract metadata from log entry
         # Format: [run_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
         self.metadata = {

@@ -34,7 +34,7 @@ class SimulationSet:
         subdirectory containing simulation results (default: 'results')
     log_file : str  
         name of the log file (default: 'jobs.log')
-    metadata_list : list of dictionaries
+    metadata : list of dictionaries
         Simulation metadata (temperature, coverage, interactions, etc.)
     
     Examples
@@ -70,10 +70,10 @@ class SimulationSet:
             raise FileNotFoundError(f"Set directory not found: {self.set_dir}")
         
         # Load metadata list from log file
-        self._load_metadata_list()
+        self._load_metadata()
 
 
-    def _load_metadata_list(self):
+    def _load_metadata(self):
         """
         Load simulation metadata from log file.
         
@@ -100,9 +100,9 @@ class SimulationSet:
         
         # Extract metadata from log entry
         # Format: list of [run_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
-        self.metadata_list = []
+        self.metadata = []
         for entry in log_entries:
-            self.metadata_list.append({
+            self.metadata.append({
                 'run_number': entry[0],
                 'job_name': entry[1],
                 'lattice_dimensions': entry[2],  # [nx, ny]
@@ -116,4 +116,4 @@ class SimulationSet:
     
     def __len__(self):
         """Return number of runs."""
-        return len(self.metadata_list)
+        return len(self.metadata)

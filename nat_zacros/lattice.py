@@ -15,49 +15,51 @@ class lattice:
     
     Attributes
     ----------
-    folder : str (must be str for pickle compatibility) or None
-        Directory containing lattice_input.dat and lattice_output.txt
-    type : str
-        Lattice type (e.g., 'periodic_cell')
-    unit_cell_vectors : ndarray, shape (2, 2)
-        Unit cell lattice vectors in Cartesian coordinates
-    size : ndarray, shape (2,)
-        Number of unit cell repetitions in each direction
     cell_vectors : ndarray, shape (2, 2)
         Supercell lattice vectors (unit_cell_vectors * size)
-    n_site_types : int
-        Number of distinct site types
-    site_type_names : list of str
-        Names of site types (e.g., ['fcc', 'hcp'])
-    n_cell_sites : int
-        Number of sites per unit cell
-    site_types : list or ndarray
-        Site type for each site
-    fractional_coordinates : ndarray
-        Fractional coordinates of sites within unit cell
-    neighboring_structure : list of tuples
-        Neighboring connectivity pattern
     coordinates : ndarray, shape (N, 2)
         Cartesian coordinates of all lattice sites
+    folder : str (must be str for pickle compatibility) or None
+        Directory containing lattice_input.dat and lattice_output.txt
+    fractional_coordinates : ndarray
+        Fractional coordinates of sites within unit cell
+    is_defined : bool
+        True if lattice parameters have been set
+    n_cell_sites : int
+        Number of sites per unit cell
+    n_site_types : int
+        Number of distinct site types
+    neighboring_structure : list of tuples
+        Neighboring connectivity pattern
     site_coordinations : ndarray
         Number of nearest neighbors for each site
     site_nns : list of ndarray
         Nearest neighbor indices for each site
+    site_types : list or ndarray
+        Site type for each site
+    site_type_names : list of str
+        Names of site types (e.g., ['fcc', 'hcp'])
+    size : ndarray, shape (2,)
+        Number of unit cell repetitions in each direction
+    type : str
+        Lattice type (e.g., 'periodic_cell')
+    unit_cell_vectors : ndarray, shape (2, 2)
+        Unit cell lattice vectors in Cartesian coordinates
         
     Methods
     -------
-    get_lattice()
-        Read lattice definition from input/output files
     apply_pbc(coords)
         Apply periodic boundary conditions to wrap coordinates
+    get_cell_area()
+        Calculate simulation cell area
+    get_lattice()
+        Read lattice definition from input/output files
+    get_nn_distance(order=1)
+        Get nearest neighbor distance for given order
     minimum_image_distance(coord1, coord2)
         Calculate minimum distance between two points with PBC
     pairwise_distances_pbc(coords)
         Calculate all pairwise distances with PBC (vectorized)
-    get_nn_distance(order=1)
-        Get nearest neighbor distance for given order
-    get_cell_area()
-        Calculate simulation cell area
     """
     
     def __init__(self, dirname=None):
@@ -72,6 +74,7 @@ class lattice:
         """
 
         self.folder = None
+        self.is_defined = False # True if lattice parameters have been set
         # default is an fcc(111) lattice with nearest-neighbor distance of 1.0 Angstrom
         # and a single fcc adsorption site per unit cell
         self.type = "periodic_cell"
@@ -114,6 +117,10 @@ class lattice:
         if self.folder is None:
             print('nothing to get: lattice folder not defined')
             return
+        
+        # Set is_defined to True initially; will set to False if reading fails
+        self.is_defined = True 
+
 
         folder_p = Path(self.folder)
         #
@@ -156,6 +163,7 @@ class lattice:
                        j += 1
         except:
             print(f'cannot read lattice_input.dat from {self.folder}')
+            self.is_defined = False
 
         #
         # Read lattice output file
@@ -180,6 +188,7 @@ class lattice:
 
         except:
             print(f'cannot read lattice_output.txt from {self.folder}')
+            self.is_defined = False
 
         self.coordinates = np.array(site_coordinates, dtype=float)
         self.site_types = np.array(site_types, dtype=int)
