@@ -15,7 +15,7 @@ from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
 
-class simulation:
+class Simulation:
     """
     Manages a Zacros simulation run with multiple trajectories.
     

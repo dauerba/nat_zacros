@@ -7,7 +7,7 @@ sequences of adsorbate configurations from Zacros KMC simulations.
 
 import numpy as np
 from pathlib import Path
-from .state import state
+from .state import State
 
 
 class Trajectory:

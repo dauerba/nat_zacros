@@ -36,6 +36,16 @@ class SimulationSet:
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
         Simulation metadata (temperature, coverage, interactions, etc.)
+    parallel : bool
+        Whether to use parallel loading of simulations.
+    simulations : list of Simulation
+        List of loaded Simulation objects for each run in the set.
+    trimming_method : str
+        Method for trimming trajectories when loading (None, 'fit', 'avg')
+    use_cache : bool
+        Whether caching is used when loading simulations.
+    verbose : bool
+        Whether to print verbose output during loading.
     
     Examples
     --------
@@ -49,19 +59,19 @@ class SimulationSet:
         
         Parameters
         ----------
+        log_file : str, optional
+            Name of the log file (default: 'jobs.log')
+        results_dir : str, optional
+            Name of the subdirectory for storing results (default: 'results')
+        runs_dir : str, optional
+            Name of the subdirectory containing simulation runs (default: 'jobs')
         set_dir : str or Path
             Path to simulation set directory (e.g., 'fn_3leed')
             This directory should contain jobs.log and the runs subdirectory
-        runs_dir : str, optional
-            Name of the subdirectory containing simulation runs (default: 'jobs')
-        results_dir : str, optional
-            Name of the subdirectory for storing results (default: 'results')
-        log_file : str, optional
-            Name of the log file (default: 'jobs.log')
         """
         
         self.set_dir     = Path(set_dir)
-        self.run_dir     = runs_dir
+        self.runs_dir     = runs_dir
         self.results_dir = results_dir
         self.log_file    = log_file
         
@@ -71,6 +81,11 @@ class SimulationSet:
         
         # Load metadata list from log file
         self._load_metadata()
+
+        self.trimming_method = 'fraction'  # default trimming method
+        self.use_cache = False             # default caching behavior
+        self.parallel  = True              # default parallel loading behavior
+        self.verbose   = False             # default verbosity
 
 
     def _load_metadata(self):
@@ -113,6 +128,22 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
+    def load(self):
+        """
+        Load all simulation runs in the set.
+        
+        """
+        self.simulations = []
+        for md in self.metadata:
+            run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
+            sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            if self.trimming_method is not None:
+                sim.load(use_cache=self.use_cache, parallel=self.parallel, energy_only=True, verbose=self.verbose)  # Load energy only from simulation data
+
+
+
+            self.simulations.append(sim)
+        
     
     def __len__(self):
         """Return number of runs."""
