@@ -1,7 +1,7 @@
 """
 Lattice class for FCC(111) surface geometry.
 
-This module provides the `lattice` class for representing periodic FCC(111) 
+This module provides the Lattice class for representing periodic FCC(111) 
 surface lattices used in Zacros kinetic Monte Carlo simulations.
 """
 
@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 
 
-class lattice:
+class Lattice:
     """
     FCC(111) surface lattice with periodic boundary conditions.
     
@@ -52,7 +52,7 @@ class lattice:
         Apply periodic boundary conditions to wrap coordinates
     get_cell_area()
         Calculate simulation cell area
-    get_lattice()
+    load()
         Read lattice definition from input/output files
     get_nn_distance(order=1)
         Get nearest neighbor distance for given order
@@ -64,7 +64,7 @@ class lattice:
     
     def __init__(self, dirname=None):
         """
-        Initialize lattice object.
+        Initialize Lattice object.
         
         Parameters
         ----------
@@ -98,9 +98,9 @@ class lattice:
 
         if dirname is not None:
             self.folder = str(Path(dirname))
-            self.get_lattice()
+            self.load()
 
-    def get_lattice(self):
+    def load(self):
         """
         Read lattice definition from input and output files.
         
@@ -196,7 +196,7 @@ class lattice:
         self.site_nns = site_nns
 
     def __len__(self):
-        """Return total number of lattice sites."""
+        """Return total number of Lattice sites."""
         # If coordinates have been loaded from lattice_output.txt, use actual count
         if len(self.coordinates) > 0:
             return len(self.coordinates)
@@ -359,6 +359,6 @@ class lattice:
         return abs(v1[0] * v2[1] - v1[1] * v2[0])
 
     def __repr__(self):
-        """String representation of lattice"""
-        return (f"lattice(type='{self.type}', size={tuple(self.size)}, "
+        """String representation of Lattice class"""
+        return (f"Lattice(type='{self.type}', size={tuple(self.size)}, "
                 f"nsites={len(self)}, area={self.get_cell_area():.2f})")

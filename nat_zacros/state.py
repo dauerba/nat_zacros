@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 
 
-class state:
+class State:
     """
     Adsorbate configuration on a surface lattice.
     
@@ -18,7 +18,7 @@ class state:
     
     Attributes
     ----------
-    lattice : lattice object
+    lattice : Lattice object
         Reference to the underlying surface lattice
     folder : str (must be str for pickle compatibility) or None
         Directory containing history_output.txt
@@ -41,7 +41,7 @@ class state:
         
     Methods
     -------
-    load_state(idx=0)
+    load(idx=0)
         Read configuration from history_output.txt
     get_coverage()
         Calculate fraction of occupied sites
@@ -62,7 +62,7 @@ class state:
         
         Parameters
         ----------
-        lattice : lattice object
+        lattice : Lattice object
             The surface lattice on which adsorbates are placed
         dirname : str or Path, optional
             Directory containing history_output.txt. If provided,
@@ -90,13 +90,13 @@ class state:
 
         if dirname is not None:
             self.folder = str(Path(dirname))
-            self.load_state()
+            self.load()
         if dirname is not None:
             self.folder = str(Path(dirname))
-            self.load_state()
+            self.load()
 
 
-    def load_state(self, idx=0):
+    def load(self, idx=0):
         """
         Read configuration from history_output.txt file.
         
@@ -192,6 +192,6 @@ class state:
 
 
     def __repr__(self):
-        """String representation of state"""
+        """String representation of State class"""
         coverage = self.get_coverage()
-        return f"state(nsites={len(self.lattice)}, n_adsorbates={self.n_ads()}, coverage={coverage:.3f})"
+        return f"State(nsites={len(self.lattice)}, n_adsorbates={self.n_ads()}, coverage={coverage:.3f})"

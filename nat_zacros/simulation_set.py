@@ -13,9 +13,9 @@ import json
 #import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from .lattice import lattice
-from .trajectory import trajectory
-from .simulation_run import SimulationRun
+from .lattice import Lattice
+from .trajectory import Trajectory
+from .simulation import Simulation
 
 class SimulationSet:
     """

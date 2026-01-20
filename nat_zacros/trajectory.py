@@ -10,15 +10,15 @@ from pathlib import Path
 from .state import state
 
 
-class trajectory:
+class Trajectory:
     """
     Container for a sequence of lattice states over time.
     
     Attributes
     ----------
-    lattice : lattice object
+    lattice : Lattice object
         The underlying surface lattice
-    states : list of state objects
+    states : list of State objects
         Sequence of configurations
     times : ndarray
         Time points for each state
@@ -29,7 +29,7 @@ class trajectory:
         
     Methods
     -------
-    load_trajectory(...)
+    load(...)
         Load states from history_output.txt
     add_state(state, time, energy)
         Add a state to the trajectory
@@ -57,7 +57,7 @@ class trajectory:
         
         Parameters
         ----------
-        lattice : lattice object
+        lattice : Lattice object
             The surface lattice for this trajectory
         dirname : str or Path, optional
             Directory containing history_output.txt
@@ -76,7 +76,7 @@ class trajectory:
         self.folder = str(Path(dirname)) if dirname else None
         
         
-    def load_trajectory(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False, fraction=1.0):
+    def load(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False, fraction=1.0):
         """
         Load states from history_output.txt.
         
@@ -106,13 +106,13 @@ class trajectory:
         Examples
         --------
         >>> # Load full trajectory with energy only to determine equilibration
-        >>> traj = trajectory(lat, dirname)
-        >>> traj.load_trajectory(load_energy=True, energy_only=True)
+        >>> traj = Trajectory(lat, dirname)
+        >>> traj.load(load_energy=True, energy_only=True)
         >>> # ... analyze energy vs time to determine equilibration fraction ...
         >>> 
         >>> # Reload with equilibrated portion only (last 50%)
-        >>> traj = trajectory(lat, dirname)
-        >>> traj.load_trajectory(fraction=0.5)
+        >>> traj = Trajectory(lat, dirname)
+        >>> traj.load(fraction=0.5)
         """
         folder_p = Path(dirname) if dirname else Path(self.folder) if self.folder else None
         try:
@@ -195,9 +195,9 @@ class trajectory:
                         )
                     
                     # Load full state configuration
-                    st = state(self.lattice)
+                    st = State(self.lattice)
                     st.folder = str(folder_p)
-                    st.load_state(idx=idx)
+                    st.load(idx=idx)
                     self.states.append(st)
                     self.times.append(time)
                     self.energies.append(energy)
@@ -214,7 +214,7 @@ class trajectory:
         
         Parameters
         ----------
-        state : state object
+        state : State object
             Configuration to add
         time : float, optional
             Time point for this state
@@ -296,8 +296,8 @@ class trajectory:
         Examples
         --------
         >>> # Phase 1: Fast energy-only loading
-        >>> traj = trajectory(lat, dirname)
-        >>> traj.load_trajectory(energy_only=True)
+        >>> traj = Trajectory(lat, dirname)
+        >>> traj.load(energy_only=True)
         >>> 
         >>> # Phase 2: Reload equilibrated states for analysis
         >>> traj.load_equilibrated_states(fraction=0.5)
@@ -309,7 +309,7 @@ class trajectory:
         Will clear existing states and reload from file.
         """
         if len(self.times) == 0:
-            raise RuntimeError("No trajectory data loaded. Run load_trajectory() first.")
+            raise RuntimeError("No trajectory data loaded. Run load() first.")
             
         # Determine equilibration index
         eq_idx = self.estimate_equilibration(fraction=fraction, method=method)
@@ -327,9 +327,9 @@ class trajectory:
             # Reload with full state parsing, starting from equilibration point
             # Keep existing times/energies, just populate states
             for idx in range(eq_idx, len(self.times)):
-                st = state(self.lattice)
+                st = State(self.lattice)
                 st.folder = folder
-                st.load_state(idx=idx)
+                st.load(idx=idx)
                 self.states.append(st)
                 
         except Exception as e:
@@ -684,9 +684,9 @@ class trajectory:
         return self.states[idx]
         
     def __repr__(self):
-        """String representation of trajectory"""
+        """String representation of Trajectory"""
         if len(self) > 0:
             t_range = f"t=[{self.times[0]:.2f}, {self.times[-1]:.2f}]"
         else:
             t_range = "empty"
-        return f"trajectory(nstates={len(self)}, {t_range}, lattice={len(self.lattice)} sites)"
+        return f"Trajectory(nstates={len(self)}, {t_range}, lattice={len(self.lattice)} sites)"

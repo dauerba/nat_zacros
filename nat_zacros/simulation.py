@@ -1,5 +1,5 @@
 """
-SimulationRun class for managing Zacros simulation runs with multiple trajectories.
+Simulation class for managing Zacros simulation runs with multiple trajectories.
 
 This module provides a high-level interface for loading, caching, and analyzing
 collections of trajectories from a single Zacros simulation run.
@@ -12,10 +12,10 @@ import numpy as np
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from .lattice import lattice
-from .trajectory import trajectory
+from .lattice import Lattice
+from .trajectory import Trajectory
 
-class SimulationRun:
+class simulation:
     """
     Manages a Zacros simulation run with multiple trajectories.
     
@@ -36,7 +36,7 @@ class SimulationRun:
             - 0.5 = keep last 50% (discard first 50%)
     is_valid : bool
         True if something wrong with run data (corrupted, missing etc.)
-    lattice : lattice
+    lattice : Lattice
         Shared lattice object for all trajectories
     metadata : dict
         Simulation metadata (temperature, coverage, interactions, etc.)
@@ -52,8 +52,8 @@ class SimulationRun:
     Examples
     --------
     >>> # Typical workflow
-    >>> run = SimulationRun('fn_3leed/jobs/1')
-    >>> run.load_trajectories()  # Uses cache if available
+    >>> run = simulation('fn_3leed/jobs/1')
+    >>> run.load()  # Uses cache if available
     >>> run.is_valid  # Check if run data is valid
     >>> r, g, g_std = run.get_ensemble_rdf(r_max=40.0, dr=0.1)
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
@@ -61,7 +61,7 @@ class SimulationRun:
 
     def __init__(self, run_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
         """
-        Initialize a SimulationRun.
+        Initialize a simulation.
         
         Parameters
         ----------
@@ -112,13 +112,13 @@ class SimulationRun:
             else:
                 
                 # Create lattice from first trajectory
-                self.lattice = lattice(self.traj_dirs[0])
+                self.lattice = Lattice(self.traj_dirs[0])
                 if not self.lattice.is_defined:
                     print(f"Cannot load lattice data for run {self.run_dir.name}")
                     self.is_valid = False
                 else:
                 
-                    # Initialize trajectory list (filled by load_trajectories)
+                    # Initialize trajectory list (filled by load)
                     self.trajectories = []
         
                     # Set up results directory (../../results/ from run_dir)
@@ -207,11 +207,11 @@ class SimulationRun:
         trajectory
             Trajectory with equilibrated states loaded
         """
-        traj = trajectory(self.lattice, traj_dir)
-        traj.load_trajectory(fraction=self.fraction, load_energy=True, energy_only=energy_only)
+        traj = Trajectory(self.lattice, traj_dir)
+        traj.load(fraction=self.fraction, load_energy=True, energy_only=energy_only)
         return traj
 
-    def load_trajectories_parallel(self, energy_only=False, n_workers=None):
+    def _load_trajectories_parallel(self, energy_only=False, n_workers=None):
         """
         Load multiple trajectories in parallel.
         Parameters
@@ -250,7 +250,7 @@ class SimulationRun:
         return trajs
 
 
-    def load_trajectories(self, use_cache=True, parallel=True, energy_only=False, verbose=False):
+    def load(self, use_cache=True, parallel=True, energy_only=False, verbose=False):
         """
         Load trajectory data with caching support.
 
@@ -294,7 +294,7 @@ class SimulationRun:
 
         if parallel:
             # Use parallel loading
-            self.trajectories = self.load_trajectories_parallel(
+            self.trajectories = self._load_trajectories_parallel(
                 energy_only=energy_only,
                 n_workers=None
             )
@@ -515,7 +515,7 @@ class SimulationRun:
                 print(f"No g_ref cache to clear")
     
     def __repr__(self):
-        """String representation of SimulationRun."""
+        """String representation of simulation class."""
         if len(self.trajectories) > 0:
             n_states = len(self.trajectories[0].states)
             traj_info = f", {len(self.trajectories)} trajectories ({n_states} states each)"
@@ -523,7 +523,7 @@ class SimulationRun:
             traj_info = f", {len(self.traj_dirs)} trajectories (not loaded)"
         
         return (
-            f"SimulationRun(run={self.metadata['run_number']}, "
+            f"simulation(run={self.metadata['run_number']}, "
             f"T={self.metadata['temperature']}K, "
             f"θ={self.metadata['coverage']:.3f}, "
             f"fraction={self.fraction}{traj_info})"

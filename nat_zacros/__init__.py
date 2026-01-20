@@ -72,10 +72,10 @@ Performance Benchmark (typical system: 10 trajectories, ~100 states each, 14 cor
 # Import all public classes and functions
 import json
 from pathlib import Path
-from .lattice import lattice
-from .state import state
-from .trajectory import trajectory
-from .simulation_run import SimulationRun
+from .lattice import Lattice
+from .state import State
+from .trajectory import Trajectory
+from .simulation import Simulation
 from .simulation_set import SimulationSet
 
 # Import parallel and RDF functions from data_processing
@@ -86,10 +86,10 @@ from .simulation_set import SimulationSet
 
 # Define what gets imported with "from nat_zacros import *"
 __all__ = [
-    'lattice',
-    'state',
-    'trajectory',
-    'SimulationRun',
+    'Lattice',
+    'State',
+    'Trajectory',
+    'Simulation',
     'SimulationSet'
 ]
 
