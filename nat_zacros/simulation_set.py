@@ -8,8 +8,9 @@ collections of runs from a Zacros simulation set.
 """
 
 import json
+import matplotlib.pyplot as plt
 #import pickle
-#import numpy as np
+import numpy as np
 #import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -26,18 +27,21 @@ class SimulationSet:
     
     Attributes
     ----------
-    set_dir  : Path or str
-        Directory containing the log file, runs, and results)
-    runs_dir : str
-        subdirectory containing simulation runs (default: 'jobs')
-    results_dir : str
-        subdirectory containing simulation results (default: 'results')
+
+    fractions : dict
+        Dictionary mapping run numbers to fraction of trajectory to load.
     log_file : str  
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
         Simulation metadata (temperature, coverage, interactions, etc.)
     parallel : bool
         Whether to use parallel loading of simulations.
+    results_dir : str
+        subdirectory containing simulation results (default: 'results')
+    runs_dir : str
+        subdirectory containing simulation runs (default: 'jobs')
+    set_dir  : Path or str
+        Directory containing the log file, runs, and results)
     simulations : list of Simulation
         List of loaded Simulation objects for each run in the set.
     trimming_method : str
@@ -70,22 +74,22 @@ class SimulationSet:
             This directory should contain jobs.log and the runs subdirectory
         """
         
-        self.set_dir     = Path(set_dir)
-        self.runs_dir     = runs_dir
-        self.results_dir = results_dir
-        self.log_file    = log_file
+        self.fractions          = None              # default fractions to load full trajectory
+        self.log_file           = log_file
+        self.parallel           = True              # default parallel loading behavior
+        self.results_dir        = results_dir
+        self.runs_dir           = runs_dir
+        self.set_dir            = Path(set_dir)
+        self.trimming_method    = None              # default trimming method
+        self.use_cache          = False             # default caching behavior
+        self.verbose            = False             # default verbosity
         
+        self._load_metadata()
+
         # Validate the set directory exists
         if not self.set_dir.exists():
             raise FileNotFoundError(f"Set directory not found: {self.set_dir}")
         
-        # Load metadata list from log file
-        self._load_metadata()
-
-        self.trimming_method = 'fraction'  # default trimming method
-        self.use_cache = False             # default caching behavior
-        self.parallel  = True              # default parallel loading behavior
-        self.verbose   = False             # default verbosity
 
 
     def _load_metadata(self):
@@ -128,23 +132,93 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
+    def load_energy(self, use_cache=True, parallel=False, verbose=False):
+        """
+        Load time and energy data for all simulation runs in the set with caching support.
+        
+        Parameters
+        ----------
+        use_cache : bool, default True
+            If True, load from cache file if available, otherwise parse and cache.
+            If False, always parse from history_output.txt files.
+        parallel : bool, default True
+            If True, use parallel loading (recommended for full-state data).
+            If False, use sequential loading.
+        verbose : bool, default False
+            If True, print detailed loading information.
+
+        """
+        self.simulations = []
+
+        for md in self.metadata:
+            run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
+            sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            sim.fraction = 1.0
+            sim.load(use_cache=use_cache, parallel=parallel, energy_only=True, verbose=verbose)  # Load energy only from simulation data
+            self.simulations.append(sim)
+
+
     def load(self):
         """
         Load all simulation runs in the set.
         
         """
         self.simulations = []
+
         for md in self.metadata:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            if self.trimming_method is not None:
-                sim.load(use_cache=self.use_cache, parallel=self.parallel, energy_only=True, verbose=self.verbose)  # Load energy only from simulation data
+            if self.trimming_method == 'fraction':
+                sim.fraction = self.fractions[md['run_number']] if self.fractions[md['run_number']] is not None else 1.0
+                sim.load(use_cache=self.use_cache, parallel=False, energy_only=True, verbose=self.verbose)  # Load energy only from simulation data
 
 
 
             self.simulations.append(sim)
-        
-    
+
+    def plot(self, ncols=3, figsize=(12,16), title_fontsize=10, suptitle_fontsize=16):
+        """Plot ensemble-averaged energy vs time for all simulations in the set."""
+
+        # Set up subplots
+        fig, axes = plt.subplots(int(np.ceil(len(self)/ncols)), ncols, figsize=figsize)
+        fig_title = f'Ensemble averaged energy vs time -- {self.set_dir.parts[-1]}'
+        fig.suptitle(fig_title, fontsize=title_fontsize, fontweight='bold', y=1.)
+
+        for isim, sim in enumerate(self.simulations):
+
+            # Get ensemble-averaged energy vs time 
+            times, energies, energies_std = sim.get_ensemble_energy_vs_time()
+
+            fraction = self.fractions.get(sim.metadata["run_number"], 1.0)
+            
+            # Plot energy as function of time using subplots
+            ax = axes[isim//ncols, isim%ncols]
+            ax.plot(times, energies, marker='o', linestyle='-', markersize=2)
+            ax.set_xlabel('Time (s)')
+            ax.set_ylabel('Energy (eV)')
+            ax.set_title(f'Run #{sim.metadata["run_number"]}' 
+                        fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$'
+                        f' ({fraction*100:.0f}%)',
+                        fontsize = title_fontsize)
+            ax.grid()
+
+        # Hide unused subplots
+        nrows = int(np.ceil(len(self.simulations)/ncols))
+        total_plots = nrows * ncols
+        for idx in range(len(self.simulations), total_plots):
+
+            ax = axes[idx//ncols, idx%ncols]
+            ax.axis('off')
+
+            # Shade equilibrium region
+            eq_idx = int((1 - fraction)*(len(times) - 1))
+            ax.axvspan(times[eq_idx], times[-1], alpha=0.2, color='green')
+
+
+        plt.tight_layout()
+        plt.show()    
+
+
     def __len__(self):
         """Return number of runs."""
         return len(self.metadata)
