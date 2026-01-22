@@ -9,14 +9,13 @@ This module provides classes for working with Zacros simulations:
 """
 
 try:
-    from importlib.metadata import version, PackageNotFoundError
+    from ._version import version as __version__
 except ImportError:
-    from importlib_metadata import version, PackageNotFoundError
-
-try:
-    __version__ = version("nat-zacros")
-except PackageNotFoundError:
-    __version__ = "unknown"
+    try:
+        from setuptools_scm import get_version
+        __version__ = get_version(root='..', relative_to=__file__)
+    except (ImportError, LookupError):
+        __version__ = "unknown"
 
 
 """
