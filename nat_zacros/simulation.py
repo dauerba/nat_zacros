@@ -33,7 +33,6 @@ class Simulation:
         Fraction of trajectory to keep from end:
             - 1.0 = keep full trajectory (default)
             - 0.7 = keep last 70% (discard first 30%)
-            - 0.5 = keep last 50% (discard first 50%)
     is_valid : bool
         True if something wrong with run data (corrupted, missing etc.)
     lattice : Lattice
@@ -273,7 +272,7 @@ class Simulation:
         Cache files are stored as:
         - Trajectories: results/{run_number}_trajs_eq.pkl
 
-        The loaded trajectories use the fraction specified during initialization.
+        The loaded trajectories use the fraction specified during initialization of the cache.
         """
         cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
 

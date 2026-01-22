@@ -148,7 +148,7 @@ class SimulationSet:
             If True, print detailed loading information.
 
         """
-        self.simulations = []
+        self.simulations = []  # Initialize simulations as an empty list (***** dja change 2025-01-21)
 
         for md in self.metadata:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
@@ -182,13 +182,12 @@ class SimulationSet:
         # Set up subplots
         fig, axes = plt.subplots(int(np.ceil(len(self)/ncols)), ncols, figsize=figsize)
         fig_title = f'Ensemble averaged energy vs time -- {self.set_dir.parts[-1]}'
-        fig.suptitle(fig_title, fontsize=title_fontsize, fontweight='bold', y=1.)
+        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
         for isim, sim in enumerate(self.simulations):
 
-            # Get ensemble-averaged energy vs time 
+            # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = sim.get_ensemble_energy_vs_time()
-
             fraction = self.fractions.get(sim.metadata["run_number"], 1.0)
             
             # Plot energy as function of time using subplots
@@ -202,18 +201,19 @@ class SimulationSet:
                         fontsize = title_fontsize)
             ax.grid()
 
-        # Hide unused subplots
-        nrows = int(np.ceil(len(self.simulations)/ncols))
-        total_plots = nrows * ncols
-        for idx in range(len(self.simulations), total_plots):
-
-            ax = axes[idx//ncols, idx%ncols]
-            ax.axis('off')
-
             # Shade equilibrium region
             eq_idx = int((1 - fraction)*(len(times) - 1))
             ax.axvspan(times[eq_idx], times[-1], alpha=0.2, color='green')
 
+            # Set y-axis limits based on equilibrium range
+            equilibrium_energies = energies[eq_idx:]
+            ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
+
+        # Hide unused subplots
+        total_plots = len(axes.flatten())
+        for idx in range(len(self.simulations), total_plots):
+            ax = axes[idx//ncols, idx%ncols]
+            ax.axis('off')
 
         plt.tight_layout()
         plt.show()    
