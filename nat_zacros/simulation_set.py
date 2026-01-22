@@ -28,8 +28,8 @@ class SimulationSet:
     Attributes
     ----------
 
-    fractions : dict
-        Dictionary mapping run numbers to fraction of trajectory to load.
+    fractions_eq : dict
+        Dictionary mapping run numbers to equilibrium fractions.
     log_file : str  
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
@@ -74,7 +74,6 @@ class SimulationSet:
             This directory should contain jobs.log and the runs subdirectory
         """
         
-        self.fractions          = None              # default fractions to load full trajectory
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
         self.results_dir        = results_dir
@@ -84,9 +83,10 @@ class SimulationSet:
         self.use_cache          = False             # default caching behavior
         self.verbose            = False             # default verbosity
         
-        self.simulations        = []                # initialize simulations list
 
         self._load_metadata()
+        self.simulations        = []   # initialize simulations list
+        self.fractions_eq       = {}  # initialize equilibration fractions dictionary
 
         # Validate the set directory exists
         if not self.set_dir.exists():
@@ -134,6 +134,23 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
+
+    def clear_cache(self, trajectories=True, gref=False):
+        """
+        Clear cached data for all simulation runs in the set.
+        
+        Parameters
+        ----------
+        trajectories : bool, default True
+            If True, clear cached trajectory data.
+        gref : bool, default False
+            If True, clear cached gref data.
+        """
+        for md in self.metadata:
+            run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
+            sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            sim.clear_cache(trajectories=trajectories, gref=gref)
+
     def load_energy(self, use_cache=True, parallel=False, verbose=False):
         """
         Load time and energy data for all simulation runs in the set with caching support.
@@ -150,12 +167,14 @@ class SimulationSet:
             If True, print detailed loading information.
 
         """
-        self.simulations = []  # Initialize simulations as an empty list (***** dja change 2025-01-21)
+
+        if len(self.simulations) > 0:
+            print("load_energy() call is ignored: simulations set is not empty.")
+            return
 
         for md in self.metadata:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.fraction = 1.0
             sim.load(use_cache=use_cache, parallel=parallel, energy_only=True, verbose=verbose)  # Load energy only from simulation data
             self.simulations.append(sim)
 
@@ -171,7 +190,7 @@ class SimulationSet:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             if self.trimming_method == 'fraction':
-                sim.fraction = self.fractions[md['run_number']] if self.fractions[md['run_number']] is not None else 1.0
+                sim._fraction_loaded = self.fractions_eq[md['run_number']] if self.fractions_eq[md['run_number']] is not None else 1.0
                 sim.load(use_cache=self.use_cache, parallel=False, energy_only=True, verbose=self.verbose)  # Load energy only from simulation data
 
 
@@ -194,8 +213,11 @@ class SimulationSet:
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = sim.get_ensemble_energy_vs_time()
-            fraction = self.fractions.get(sim.metadata["run_number"], 1.0)
-            
+            try:
+                fraction = self.fractions_eq[sim.metadata["run_number"]]
+            except KeyError:
+                raise KeyError(f"Equilibration fraction for run {sim.metadata['run_number']} not found in fractions_eq dictionary.")
+
             # Plot energy as function of time using subplots
             ax = axes[isim//ncols, isim%ncols]
 

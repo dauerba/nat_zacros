@@ -27,12 +27,12 @@ class Simulation:
     
     Attributes
     ----------
-    eq_method : str
-		Equilibration detection method ('fraction' by default)
-    fraction : float
-        Fraction of trajectory to keep from end:
+    _fraction_loaded : float
+        Fraction of trajectory from end to load:
             - 1.0 = keep full trajectory (default)
             - 0.7 = keep last 70% (discard first 30%)
+    eq_method : str
+		Equilibration detection method ('fraction' by default)
     is_valid : bool
         True if something wrong with run data (corrupted, missing etc.)
     lattice : Lattice
@@ -58,7 +58,7 @@ class Simulation:
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
     """
 
-    def __init__(self, run_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
+    def __init__(self, run_dir, fraction=1.0, metadata=None, log_file='jobs.log', results_dirname='results'):
         """
         Initialize a simulation.
         
@@ -67,6 +67,10 @@ class Simulation:
         run_dir : str or Path
             Path to simulation run directory (e.g., 'fn_3leed/jobs/1')
             This directory should contain traj_1, traj_2, ... subdirectories
+        fraction : float, optional
+            Fraction of trajectory to keep from end:
+                - 1.0 = keep full trajectory (default)
+                - 0.7 = keep last 70% (discard first 30%)
         metadata : dict, optional
             Pre-loaded metadata (if available)
         results_dirname : str, optional
@@ -77,10 +81,10 @@ class Simulation:
         The fraction should be determined from exploratory energy-only analysis
         """
 
+        self._fraction_loaded = fraction
         self.is_valid = True  # Assume run is valid initially
         self.eq_method = 'fraction'  # Default equilibration method
         self.run_dir = Path(run_dir)
-        self.fraction = 1.0  # Default to full trajectory
         
         # Validate run directory exists
         if not self.run_dir.exists():
@@ -135,6 +139,43 @@ class Simulation:
                     else:
                         self._load_metadata(log_file)
         
+    def clear_cache(self, trajectories=True, gref=False):
+        """
+        Clear cached data files.
+        
+        Parameters
+        ----------
+        trajectories : bool, default True
+            If True, clear trajectory cache for this run
+        gref : bool, default False
+            If True, clear g_ref cache (affects all runs in this interaction set)
+        
+        Notes
+        -----
+        Use gref=True with caution - this will force recomputation of g_ref
+        for all simulation runs in this interaction set.
+        """
+        if trajectories:
+            cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
+            if cache_file.exists():
+                cache_file.unlink()
+                print(f"Cleared trajectory cache: {cache_file.name}")
+            else:
+                print(f"No trajectory cache to clear")
+        
+        if gref:
+            gref_file = self.results_dir / 'gref.pkl'
+            if gref_file.exists():
+                gref_file.unlink()
+                print(f"Cleared g_ref cache: {gref_file.name}")
+                print(f"WARNING: This affects all runs in this interaction set!")
+            else:
+                print(f"No g_ref cache to clear")
+    
+    def get_fraction_loaded(self):
+        """Get equilibration fraction."""
+        return self._fraction_loaded   
+
     def _load_metadata(self, log_file):
         """
         Load simulation metadata from log file.
@@ -212,7 +253,7 @@ class Simulation:
             Trajectory with equilibrated states loaded
         """
         traj = Trajectory(self.lattice, traj_dir)
-        traj.load(fraction=self.fraction, load_energy=True, energy_only=energy_only)
+        traj.load(fraction=self._fraction_loaded, load_energy=True, energy_only=energy_only)
         return traj
 
     def _load_trajectories_parallel(self, energy_only=False, n_workers=None):
@@ -292,7 +333,7 @@ class Simulation:
         # Load trajectories from files
         if verbose:
             print(f"Loading {len(self.traj_dirs)} trajectories...")
-            print(f"  Equilibration fraction: {self.fraction} (keeping last {self.fraction*100:.0f}%)")
+            print(f"  Equilibration fraction: {self._fraction_loaded} (keeping last {self._fraction_loaded*100:.0f}%)")
             print(f"  Loading mode: {'parallel' if parallel else 'sequential'}")
             print(f"  Energy only: {energy_only}")
 
@@ -485,39 +526,6 @@ class Simulation:
         
         return time_centers, energy_avg, energy_std
     
-    def clear_cache(self, trajectories=True, gref=False):
-        """
-        Clear cached data files.
-        
-        Parameters
-        ----------
-        trajectories : bool, default True
-            If True, clear trajectory cache for this run
-        gref : bool, default False
-            If True, clear g_ref cache (affects all runs in this interaction set)
-        
-        Notes
-        -----
-        Use gref=True with caution - this will force recomputation of g_ref
-        for all simulation runs in this interaction set.
-        """
-        if trajectories:
-            cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
-            if cache_file.exists():
-                cache_file.unlink()
-                print(f"Cleared trajectory cache: {cache_file.name}")
-            else:
-                print(f"No trajectory cache to clear")
-        
-        if gref:
-            gref_file = self.results_dir / 'gref.pkl'
-            if gref_file.exists():
-                gref_file.unlink()
-                print(f"Cleared g_ref cache: {gref_file.name}")
-                print(f"WARNING: This affects all runs in this interaction set!")
-            else:
-                print(f"No g_ref cache to clear")
-    
     def __repr__(self):
         """String representation of simulation class."""
         if len(self.trajectories) > 0:
@@ -530,7 +538,7 @@ class Simulation:
             f"simulation(run={self.metadata['run_number']}, "
             f"T={self.metadata['temperature']}K, "
             f"θ={self.metadata['coverage']:.3f}, "
-            f"fraction={self.fraction}{traj_info})"
+            f"fraction={self._fraction_loaded}{traj_info})"
         )
     
     def __len__(self):
