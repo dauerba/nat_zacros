@@ -84,6 +84,8 @@ class SimulationSet:
         self.use_cache          = False             # default caching behavior
         self.verbose            = False             # default verbosity
         
+        self.simulations        = []                # initialize simulations list
+
         self._load_metadata()
 
         # Validate the set directory exists
@@ -184,6 +186,10 @@ class SimulationSet:
         fig_title = f'Ensemble averaged energy vs time -- {self.set_dir.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
+        if not self.simulations:
+            print("Loading energy data automatically...")
+            self.load_energy()
+
         for isim, sim in enumerate(self.simulations):
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
@@ -192,8 +198,18 @@ class SimulationSet:
             
             # Plot energy as function of time using subplots
             ax = axes[isim//ncols, isim%ncols]
-            ax.plot(times, energies, marker='o', linestyle='-', markersize=2)
-            ax.set_xlabel('Time (s)')
+
+            # Determine time units
+            use_ms = len(times) > 0 and np.max(times) < 1.0
+            if use_ms:
+                times_plot = times * 1000
+                x_label = 'Time (ms)'
+            else:
+                times_plot = times
+                x_label = 'Time (s)'
+                
+            ax.plot(times_plot, energies, marker='o', linestyle='-', markersize=2)
+            ax.set_xlabel(x_label)
             ax.set_ylabel('Energy (eV)')
             ax.set_title(f'Run #{sim.metadata["run_number"]}' 
                         fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$'
@@ -203,7 +219,7 @@ class SimulationSet:
 
             # Shade equilibrium region
             eq_idx = int((1 - fraction)*(len(times) - 1))
-            ax.axvspan(times[eq_idx], times[-1], alpha=0.2, color='green')
+            ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
 
             # Set y-axis limits based on equilibrium range
             equilibrium_energies = energies[eq_idx:]
