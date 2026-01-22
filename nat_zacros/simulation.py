@@ -7,7 +7,7 @@ collections of trajectories from a single Zacros simulation run.
 
 import json
 import pickle
-import subprocess
+import tarfile
 import numpy as np
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
@@ -85,10 +85,15 @@ class Simulation:
         # Validate run directory exists
         if not self.run_dir.exists():
             # untar jobs directory
-            tgz_file = self.run_dir.parent / self.run_dir.name / '.tgz'
+            tgz_file = self.run_dir.parent / (self.run_dir.name + '.tgz')
             print(f"Extracting trajectories from {tgz_file.as_posix()} ...")
             try:
-                subprocess.run(['tar', '-xf', f'{tgz_file}', '-C', self.run_dir.parent.as_posix()])
+                if not tgz_file.exists():
+                     # Try looking for .tar.gz if .tgz not found, or just fail
+                     pass
+                
+                with tarfile.open(tgz_file, "r:gz") as tar:
+                    tar.extractall(path=self.run_dir.parent)
             except Exception as e:
                 print(f"Error extracting jobs: {e}")
                 print(f"Data for run {self.run_dir.name} is invalid.")

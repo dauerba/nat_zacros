@@ -1,3 +1,44 @@
 [build-system]
-requires = ["setuptools>=42", "setuptools_scm>=6.2"]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "nat-zacros"
+dynamic = ["version"]
+description = "Analysis package for Zacros kinetic Monte Carlo simulations"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT License" }
+authors = [
+    { name = "dauerba, akandra", email = "your-email@example.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "numpy>=1.20",
+    "scipy>=1.7",
+]
+
+[project.optional-dependencies]
+parallel = ["tqdm>=4.60"]
+dev = ["pytest>=6.0", "pytest-cov>=2.12"]
+
+[project.urls]
+Homepage = "https://github.com/dauerba/nat_zacros"
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "node-and-date"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nat_zacros*"]
