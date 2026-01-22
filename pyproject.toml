@@ -36,8 +36,8 @@ dev = ["pytest>=6.0", "pytest-cov>=2.12"]
 Homepage = "https://github.com/dauerba/nat_zacros"
 
 [tool.setuptools_scm]
-version_scheme = "no-guess-dev"
-local_scheme = "node-and-date"
+version_scheme = "python-simplified-semver"
+local_scheme = "no-local-version"
 
 [tool.setuptools.packages.find]
 where = ["."]
