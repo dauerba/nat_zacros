@@ -83,6 +83,7 @@ class SimulationSet:
         self.trimming_method    = None              # default trimming method
         self.use_cache          = False             # default caching behavior
         self.verbose            = False             # default verbosity
+        self.simulations        = []
         
         self._load_metadata()
 
