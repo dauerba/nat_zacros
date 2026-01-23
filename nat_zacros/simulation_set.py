@@ -10,6 +10,7 @@ collections of runs from a Zacros simulation set.
 import json
 import matplotlib.pyplot as plt
 #import pickle
+from matplotlib.ticker import MultipleLocator, FuncFormatter
 import numpy as np
 #import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
@@ -86,7 +87,9 @@ class SimulationSet:
 
         self._load_metadata()
         self.simulations        = []   # initialize simulations list
-        self.fractions_eq       = {}  # initialize equilibration fractions dictionary
+        # Initialize equilibration fractions dictionary with default 1.0 for each run -- dja change 2026-01-22
+        # This avoids KeyError when code expects an entry per run unless user overrides.
+        self.fractions_eq       = {md['run_number']: 1.0 for md in getattr(self, 'metadata', [])}
 
         # Validate the set directory exists
         if not self.set_dir.exists():
@@ -230,18 +233,46 @@ class SimulationSet:
                 times_plot = times
                 x_label = 'Time (s)'
                 
-            ax.plot(times_plot, energies, marker='o', linestyle='-', markersize=2)
-            ax.set_xlabel(x_label)
-            ax.set_ylabel('Energy (eV)')
+            # Plot energy versus percent of total time on bottom axis; show time on top axis
+            ax.grid()
             ax.set_title(f'Run #{sim.metadata["run_number"]}' 
                         fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$'
                         f' ({fraction*100:.0f}%)',
                         fontsize = title_fontsize)
-            ax.grid()
 
-            # Shade equilibrium region
-            eq_idx = int((1 - fraction)*(len(times) - 1))
-            ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
+            if len(times_plot) > 0 and times_plot[-1] != 0:
+                # Use the actual maximum time (not the last element) in case times are unsorted
+                times_arr = np.asarray(times_plot, dtype=float)
+                max_time = float(np.max(times_arr))
+                percent = (times_arr / max_time) * 100.0
+
+                ax.plot(percent, energies, marker='o', linestyle='-', markersize=2)
+                ax.set_xlabel('Percent of time (%)')
+                ax.set_ylabel('Energy (eV)')
+
+                # Ensure percent axis spans 0-100 (0% -> time 0, 100% -> max_time)
+                ax.set_xlim(0.0, 100.0)
+
+                # Percent axis ticks: minor at 10%, major (and labels) at 20%
+                ax.xaxis.set_major_locator(MultipleLocator(20))
+                ax.xaxis.set_minor_locator(MultipleLocator(10))
+                ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
+
+                # Shade equilibrium region in percent coordinates
+                eq_idx = int((1 - fraction) * (len(times) - 1))
+                left_p = (times_arr[eq_idx] / max_time) * 100.0
+                ax.axvspan(left_p, 100.0, alpha=0.2, color='green')
+            else:
+                # Fallback: no valid times, plot energies vs times_plot as-is
+                ax.plot(times_plot, energies, marker='o', linestyle='-', markersize=2)
+                ax.set_xlabel(x_label)
+                ax.set_ylabel('Energy (eV)')
+                # Shade equilibrium region if possible
+                if len(times_plot) > 0:
+                    eq_idx = int((1 - fraction) * (len(times) - 1))
+                    ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
+
+            
 
             # Set y-axis limits based on equilibrium range
             equilibrium_energies = energies[eq_idx:]
