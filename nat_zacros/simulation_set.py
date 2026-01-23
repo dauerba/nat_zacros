@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 #import pickle
 from matplotlib.ticker import MultipleLocator, FuncFormatter
 import numpy as np
+from lmfit import Model
 #import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -155,6 +156,99 @@ class SimulationSet:
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             sim.clear_cache(trajectories=trajectories, gref=gref)
 
+    def find_equilibrium_fraction(self, threshold=0.01, min_equilibrium_points=10,skip_points=0):
+        """
+        Determine equilibrium points for all simulations in the set by fitting an exponential decay model.  
+        Parameters
+        ----------
+        threshold : float, optional
+            Relative threshold for determining equilibrium (default: 0.01)
+        min_equilibrium_points : int, optional
+            Minimum number of consecutive points below threshold to confirm equilibrium (default: 10)       
+        Returns
+        -------
+        fit_results : list of tuples
+            Each tuple contains (equilibrium_index, fit_parameters, fit_result, exp_term) for each simulation.
+            - equilibrium_index : int or None
+                Index of first equilibrium point, or None if not found.
+            - fit_parameters : tuple or None
+                Fitted parameters (A, tau, C) of the exponential decay model, or None if fit failed.
+            - fit_result : lmfit ModelResult or None
+                Full fit result object from lmfit, or None if fit failed.
+            - exp_term : np.ndarray or None
+                Exponential term values over time from the fitted model, or None if fit failed.
+        """
+
+        def exp_decay_model(t, A, tau, C):
+            """Exponential decay model: E(t) = A*exp(-t/tau) + C"""
+            return A * np.exp(-t / tau) + C
+
+        def find_equilibrium_exp_decay(times, energies, threshold, min_eq_points):
+            """Find equilibrium by fitting exponential decay model."""
+            if len(times) < min_eq_points:
+                return None, None, None, None
+            
+            # Initial parameter guesses
+            C_guess = energies[-1]  # Equilibrium value ~ final energy
+            A_guess = energies[0] - C_guess  # Initial amplitude
+            tau_guess = times[-1] / 3  # Rough time constant
+            
+            # Create lmfit Model
+            model = Model(exp_decay_model)
+            
+            # Set up parameters with constraints
+            params = model.make_params(A=A_guess, tau=tau_guess, C=C_guess)
+            params['A'].min = 0  # A must be positive
+            params['tau'].min = 0  # tau must be positive
+            
+            try:
+                # Fit the model
+                result = model.fit(energies, params, t=times)
+                
+                # Extract fitted parameters
+                A_fit = result.params['A'].value
+                tau_fit = result.params['tau'].value
+                C_fit = result.params['C'].value
+                
+                # Calculate exponential term over time
+                exp_term = A_fit * np.exp(-times / tau_fit)
+                
+                below_threshold = exp_term < threshold*C_fit
+                
+                # Find first sustained occurrence
+                for i in range(len(below_threshold) - min_eq_points):
+                    if np.all(below_threshold[i:i+min_eq_points]):
+                        return i, (A_fit, tau_fit, C_fit), result, exp_term
+                
+                # If threshold never reached, no equilibrium detected
+                return None , (A_fit, tau_fit, C_fit), result, exp_term
+                
+            except Exception as e:
+                print(f"Fit failed: {e}")
+                return None, None, None, None
+
+        fit_results = []
+        for sim in self.simulations:
+
+            # Get ensemble-averaged energy vs time and fraction for this simulation
+            times, energies, energies_std = sim.get_ensemble_energy_vs_time()
+            
+            # Find equilibrium point
+            eq_idx, fit_params, fit_result, exp_term = find_equilibrium_exp_decay(
+                times[skip_points:], energies[skip_points:], threshold, min_equilibrium_points
+            )
+
+            if fit_params is None or fit_result is None:
+                print(f'Run #{sim.metadata["run_number"]}: FIT FAILED\n\n')
+
+            self.fractions_eq[sim.metadata["run_number"]] = \
+                1.0 - (eq_idx + skip_points)/(len(times[:]) - 1) if eq_idx is not None else 1.0
+            
+            fit_results.append((eq_idx, fit_params, fit_result, exp_term))
+
+        return fit_results
+            
+
     def load_energy(self, use_cache=True, parallel=False, verbose=False):
         """
         Load time and energy data for all simulation runs in the set with caching support.
@@ -292,3 +386,5 @@ class SimulationSet:
     def __len__(self):
         """Return number of runs."""
         return len(self.metadata)
+
+
