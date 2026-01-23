@@ -6,7 +6,19 @@ This module provides classes for working with Zacros simulations:
 - `lattice`: FCC(111) surface lattice
 - `state`: Adsorbate configuration on the lattice
 - `trajectory`: Sequence of states over time
+"""
 
+try:
+    from ._version import version as __version__
+except ImportError:
+    try:
+        from setuptools_scm import get_version
+        __version__ = get_version(root='..', relative_to=__file__)
+    except (ImportError, LookupError):
+        __version__ = "unknown"
+
+
+"""
 Performance Optimization Guide
 -------------------------------
 This module includes several performance optimizations for RDF and trajectory analysis.

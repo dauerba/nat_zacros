@@ -10,6 +10,7 @@ collections of runs from a Zacros simulation set.
 import json
 import matplotlib.pyplot as plt
 #import pickle
+from matplotlib.ticker import MultipleLocator, FuncFormatter
 import numpy as np
 #import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
@@ -28,8 +29,8 @@ class SimulationSet:
     Attributes
     ----------
 
-    fractions : dict
-        Dictionary mapping run numbers to fraction of trajectory to load.
+    fractions_eq : dict
+        Dictionary mapping run numbers to equilibrium fractions.
     log_file : str  
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
@@ -74,7 +75,6 @@ class SimulationSet:
             This directory should contain jobs.log and the runs subdirectory
         """
         
-        self.fractions          = None              # default fractions to load full trajectory
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
         self.results_dir        = results_dir
@@ -85,7 +85,12 @@ class SimulationSet:
         self.verbose            = False             # default verbosity
         self.simulations        = []
         
+
         self._load_metadata()
+        self.simulations        = []   # initialize simulations list
+        # Initialize equilibration fractions dictionary with default 1.0 for each run -- dja change 2026-01-22
+        # This avoids KeyError when code expects an entry per run unless user overrides.
+        self.fractions_eq       = {md['run_number']: 1.0 for md in getattr(self, 'metadata', [])}
 
         # Validate the set directory exists
         if not self.set_dir.exists():
@@ -133,6 +138,23 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
+
+    def clear_cache(self, trajectories=True, gref=False):
+        """
+        Clear cached data for all simulation runs in the set.
+        
+        Parameters
+        ----------
+        trajectories : bool, default True
+            If True, clear cached trajectory data.
+        gref : bool, default False
+            If True, clear cached gref data.
+        """
+        for md in self.metadata:
+            run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
+            sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            sim.clear_cache(trajectories=trajectories, gref=gref)
+
     def load_energy(self, use_cache=True, parallel=False, verbose=False):
         """
         Load time and energy data for all simulation runs in the set with caching support.
@@ -149,12 +171,14 @@ class SimulationSet:
             If True, print detailed loading information.
 
         """
-        self.simulations = []  # Initialize simulations as an empty list (***** dja change 2025-01-21)
+
+        if len(self.simulations) > 0:
+            print("load_energy() call is ignored: simulations set is not empty.")
+            return
 
         for md in self.metadata:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.fraction = 1.0
             sim.load(use_cache=use_cache, parallel=parallel, energy_only=True, verbose=verbose)  # Load energy only from simulation data
             self.simulations.append(sim)
 
@@ -170,7 +194,7 @@ class SimulationSet:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             if self.trimming_method == 'fraction':
-                sim.fraction = self.fractions[md['run_number']] if self.fractions[md['run_number']] is not None else 1.0
+                sim._fraction_loaded = self.fractions_eq[md['run_number']] if self.fractions_eq[md['run_number']] is not None else 1.0
                 sim.load(use_cache=self.use_cache, parallel=False, energy_only=True, verbose=self.verbose)  # Load energy only from simulation data
 
 
@@ -185,26 +209,71 @@ class SimulationSet:
         fig_title = f'Ensemble averaged energy vs time -- {self.set_dir.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
+        if not self.simulations:
+            print("Loading energy data automatically...")
+            self.load_energy()
+
         for isim, sim in enumerate(self.simulations):
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = sim.get_ensemble_energy_vs_time()
-            fraction = self.fractions.get(sim.metadata["run_number"], 1.0)
-            
+            try:
+                fraction = self.fractions_eq[sim.metadata["run_number"]]
+            except KeyError:
+                raise KeyError(f"Equilibration fraction for run {sim.metadata['run_number']} not found in fractions_eq dictionary.")
+
             # Plot energy as function of time using subplots
             ax = axes[isim//ncols, isim%ncols]
-            ax.plot(times, energies, marker='o', linestyle='-', markersize=2)
-            ax.set_xlabel('Time (s)')
-            ax.set_ylabel('Energy (eV)')
+
+            # Determine time units
+            use_ms = len(times) > 0 and np.max(times) < 1.0
+            if use_ms:
+                times_plot = times * 1000
+                x_label = 'Time (ms)'
+            else:
+                times_plot = times
+                x_label = 'Time (s)'
+                
+            # Plot energy versus percent of total time on bottom axis; show time on top axis
+            ax.grid()
             ax.set_title(f'Run #{sim.metadata["run_number"]}' 
                         fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$'
                         f' ({fraction*100:.0f}%)',
                         fontsize = title_fontsize)
-            ax.grid()
 
-            # Shade equilibrium region
-            eq_idx = int((1 - fraction)*(len(times) - 1))
-            ax.axvspan(times[eq_idx], times[-1], alpha=0.2, color='green')
+            if len(times_plot) > 0 and times_plot[-1] != 0:
+                # Use the actual maximum time (not the last element) in case times are unsorted
+                times_arr = np.asarray(times_plot, dtype=float)
+                max_time = float(np.max(times_arr))
+                percent = (times_arr / max_time) * 100.0
+
+                ax.plot(percent, energies, marker='o', linestyle='-', markersize=2)
+                ax.set_xlabel('Percent of time (%)')
+                ax.set_ylabel('Energy (eV)')
+
+                # Ensure percent axis spans 0-100 (0% -> time 0, 100% -> max_time)
+                ax.set_xlim(0.0, 100.0)
+
+                # Percent axis ticks: minor at 10%, major (and labels) at 20%
+                ax.xaxis.set_major_locator(MultipleLocator(20))
+                ax.xaxis.set_minor_locator(MultipleLocator(10))
+                ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
+
+                # Shade equilibrium region in percent coordinates
+                eq_idx = int((1 - fraction) * (len(times) - 1))
+                left_p = (times_arr[eq_idx] / max_time) * 100.0
+                ax.axvspan(left_p, 100.0, alpha=0.2, color='green')
+            else:
+                # Fallback: no valid times, plot energies vs times_plot as-is
+                ax.plot(times_plot, energies, marker='o', linestyle='-', markersize=2)
+                ax.set_xlabel(x_label)
+                ax.set_ylabel('Energy (eV)')
+                # Shade equilibrium region if possible
+                if len(times_plot) > 0:
+                    eq_idx = int((1 - fraction) * (len(times) - 1))
+                    ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
+
+            
 
             # Set y-axis limits based on equilibrium range
             equilibrium_energies = energies[eq_idx:]
