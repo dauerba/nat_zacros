@@ -156,7 +156,7 @@ class SimulationSet:
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             sim.clear_cache(trajectories=trajectories, gref=gref)
 
-    def find_equilibrium_fraction(self, threshold=0.01, min_equilibrium_points=10,skip_points=0):
+    def find_equilibrium_fraction_fit1(self, threshold=0.01, min_equilibrium_points=10):
         """
         Determine equilibrium points for all simulations in the set by fitting an exponential decay model.  
         Parameters
@@ -235,19 +235,122 @@ class SimulationSet:
             
             # Find equilibrium point
             eq_idx, fit_params, fit_result, exp_term = find_equilibrium_exp_decay(
-                times[skip_points:], energies[skip_points:], threshold, min_equilibrium_points
+                times, energies, threshold, min_equilibrium_points
             )
 
             if fit_params is None or fit_result is None:
                 print(f'Run #{sim.metadata["run_number"]}: FIT FAILED\n\n')
 
             self.fractions_eq[sim.metadata["run_number"]] = \
-                1.0 - (eq_idx + skip_points)/(len(times[:]) - 1) if eq_idx is not None else 1.0
+                (len(energies) - eq_idx) / len(energies)
             
             fit_results.append((eq_idx, fit_params, fit_result, exp_term))
 
         return fit_results
             
+    def find_equilibrium_fraction_fit2(self, threshold=0.01, min_equilibrium_points=10, 
+                                       a0_fixed=True, a0_guess_points=10):
+
+        def exp_decay_model(t, a0, a1, a2, tau1, tau2):
+            """
+            Exponential decay + constant model:
+            E(t) = a0 + a1*exp(-t/tau1) + a2*exp(-t/tau2)
+            Parameters:
+                t           : time        -- float or np.ndarray
+                a0,a1,a2    : amplitudes  -- float
+                tau1, tau2  : decay time constants -- float
+            Returns:
+                E(t) : float or np.ndarray
+            """
+            return a0 + a1 * np.exp(-t / tau1) + a2 * np.exp(-t / tau2)
+
+        def find_equilibrium_exp_decay(times, energies, 
+                                    threshold_fraction=0.01, 
+                                    min_equ_points=10, 
+                                    a0_fixed=True, a0_guess_points=10):
+            """Find equilibrium by fitting exponential decay model. Optionally fix a0 to average of last 10 points."""
+            if len(times) < min_equ_points:
+                return None, None, None, None
+
+            # Initial parameter guesses
+            a0_guess = np.average(energies[-a0_guess_points:-1])       # Equilibrium value (final energy)
+            a1_guess = energies[0]  - a0_guess            # Amplitude of first decay
+            a2_guess = energies[10] - a0_guess            # Amplitude of second decay
+            tau1_guess = (times[10] - times[0]) / 5       # Fast decay time constant
+            tau2_guess = (times[-1] - times[0]) / 10      # Slow Decay time constant
+
+            # Create lmfit Model
+            model = Model(exp_decay_model)
+
+            # Set up parameters with constraints
+            params = model.make_params(a0=a0_guess, a1=a1_guess, a2=a2_guess, tau1=tau1_guess, tau2=tau2_guess)
+            params['a0'].min = 0.0
+            params['a1'].min = 0.0
+            params['a2'].min = 0.0
+            params['tau1'].min = 0.0
+            params['tau2'].min = 0.0
+            if a0_fixed:
+                params['a0'].set(value=a0_guess, vary=False)
+
+            try:
+                # Fit the model
+                result = model.fit(energies, params, t=times)
+
+                # Extract fitted parameters
+                a0_fit = result.params['a0'].value
+                a1_fit = result.params['a1'].value
+                a2_fit = result.params['a2'].value
+                tau1_fit = result.params['tau1'].value
+                tau2_fit = result.params['tau2'].value
+
+                # Calculate exponential terms over time
+                exp_term_1 = a1_fit * np.exp(-times / tau1_fit)
+                exp_term_2 = a2_fit * np.exp(-times / tau2_fit)
+                exp_terms = exp_term_1 + exp_term_2
+
+                # Use threshold relative to last energy point, not fitted amplitude
+                threshold = threshold_fraction * np.average(energies[-10:-1])
+                below_threshold = exp_terms < threshold
+
+                # Find first sustained occurrence
+                for i in range(len(below_threshold) - min_equ_points):
+                    if np.all(below_threshold[i:i+min_equ_points]):
+                        return i, (a0_fit, a1_fit, a2_fit, tau1_fit, tau2_fit), result, exp_terms
+
+                # If threshold never reached, no equilibrium detected
+                return None, (a0_fit, a1_fit, a2_fit, tau1_fit, tau2_fit), result, exp_terms
+
+            except Exception as e:
+                print(f"Fit failed: {e}")
+                return None, None, None, None
+
+        fit_results = []
+        for isim, sim in enumerate(self.simulations):
+
+            # Get ensemble-averaged energy vs time and fraction for this simulation
+            times, energies, energies_std = sim.get_ensemble_energy_vs_time()
+
+            try:
+                fraction_eq = self.fractions_eq[sim.metadata["run_number"]]
+            except KeyError:
+                raise KeyError(f"Equilibration fraction for run {sim.metadata['run_number']} not found in fractions_eq dictionary.")
+
+            # --- fit
+            eq_idx, fit_params, fit_result, exp_terms = find_equilibrium_exp_decay(
+                times, energies, 
+                threshold_fraction=threshold, 
+                min_equ_points=min_equilibrium_points, 
+                a0_fixed=a0_fixed, 
+                a0_guess_points=a0_guess_points
+            )
+
+            fit_results.append((eq_idx, fit_params, fit_result, exp_terms))
+            self.fractions_eq[sim.metadata["run_number"]] = \
+                (len(energies) - eq_idx) / len(energies)
+
+
+        return fit_results
+
 
     def load_energy(self, use_cache=True, parallel=False, verbose=False):
         """
@@ -354,7 +457,7 @@ class SimulationSet:
                 ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
 
                 # Shade equilibrium region in percent coordinates
-                eq_idx = int((1 - fraction) * (len(times) - 1))
+                eq_idx = int(np.round((1 - fraction) * len(times)))
                 left_p = (times_arr[eq_idx] / max_time) * 100.0
                 ax.axvspan(left_p, 100.0, alpha=0.2, color='green')
             else:
@@ -364,7 +467,7 @@ class SimulationSet:
                 ax.set_ylabel('Energy (eV)')
                 # Shade equilibrium region if possible
                 if len(times_plot) > 0:
-                    eq_idx = int((1 - fraction) * (len(times) - 1))
+                    eq_idx = int(np.round((1 - fraction) * len(times)))
                     ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
 
             
