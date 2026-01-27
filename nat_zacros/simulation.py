@@ -139,39 +139,20 @@ class Simulation:
                     else:
                         self._load_metadata(log_file)
         
-    def clear_cache(self, trajectories=True, gref=False):
+    def clear_cache(self, verbose=False):
         """
-        Clear cached data files.
+        Clear cached trajectory data files.
         
-        Parameters
-        ----------
-        trajectories : bool, default True
-            If True, clear trajectory cache for this run
-        gref : bool, default False
-            If True, clear g_ref cache (affects all runs in this interaction set)
-        
-        Notes
-        -----
-        Use gref=True with caution - this will force recomputation of g_ref
-        for all simulation runs in this interaction set.
         """
-        if trajectories:
-            cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
-            if cache_file.exists():
-                cache_file.unlink()
+        cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
+        if cache_file.exists():
+            cache_file.unlink()
+            if verbose:
                 print(f"Cleared trajectory cache: {cache_file.name}")
-            else:
+        else:
+            if verbose:
                 print(f"No trajectory cache to clear")
-        
-        if gref:
-            gref_file = self.results_dir / 'gref.pkl'
-            if gref_file.exists():
-                gref_file.unlink()
-                print(f"Cleared g_ref cache: {gref_file.name}")
-                print(f"WARNING: This affects all runs in this interaction set!")
-            else:
-                print(f"No g_ref cache to clear")
-    
+
     def get_fraction_loaded(self):
         """Get equilibration fraction."""
         return self._fraction_loaded   

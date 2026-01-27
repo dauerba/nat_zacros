@@ -46,8 +46,6 @@ class SimulationSet:
         Directory containing the log file, runs, and results)
     simulations : list of Simulation
         List of loaded Simulation objects for each run in the set.
-    trimming_method : str
-        Method for trimming trajectories when loading (None, 'fit', 'avg')
     use_cache : bool
         Whether caching is used when loading simulations.
     verbose : bool
@@ -81,7 +79,6 @@ class SimulationSet:
         self.results_dir        = results_dir
         self.runs_dir           = runs_dir
         self.set_dir            = Path(set_dir)
-        self.trimming_method    = None              # default trimming method
         self.use_cache          = False             # default caching behavior
         self.verbose            = False             # default verbosity
         self.simulations        = []
@@ -91,7 +88,7 @@ class SimulationSet:
         self.simulations        = []   # initialize simulations list
         # Initialize equilibration fractions dictionary with default 1.0 for each run -- dja change 2026-01-22
         # This avoids KeyError when code expects an entry per run unless user overrides.
-        self.fractions_eq       = {md['run_number']: 1.0 for md in getattr(self, 'metadata', [])}
+        self.fractions_eq       = {md['run_number']: None for md in getattr(self, 'metadata', [])}
 
         # Validate the set directory exists
         if not self.set_dir.exists():
@@ -140,21 +137,29 @@ class SimulationSet:
                })
 
 
-    def clear_cache(self, trajectories=True, gref=False):
+    def clear_cache(self, verbose=False):
         """
         Clear cached data for all simulation runs in the set.
         
-        Parameters
-        ----------
-        trajectories : bool, default True
-            If True, clear cached trajectory data.
-        gref : bool, default False
-            If True, clear cached gref data.
         """
+        
         for md in self.metadata:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.clear_cache(trajectories=trajectories, gref=gref)
+            sim.clear_cache(verbose=verbose)
+
+    def clear_rdf_normalization_cache(self):
+        """
+        Clear cached rdf normalization data.
+        
+        """
+        gref_file = self.results_dir / 'gref.pkl'
+        if gref_file.exists():
+            gref_file.unlink()
+            print(f"Cleared g_ref cache: {gref_file.name}")
+        else:
+            print(f"No g_ref cache to clear")
+    
 
     def find_equilibrium_fraction_fit1(self, threshold=0.01, min_equilibrium_points=10):
         """
@@ -352,51 +357,36 @@ class SimulationSet:
         return fit_results
 
 
-    def load_energy(self, use_cache=True, parallel=False, verbose=False):
+    def load(self, energy_only=False, parallel=True, use_cache=True, verbose=False):
         """
-        Load time and energy data for all simulation runs in the set with caching support.
+        Load data for all simulation runs in the set with caching support.
         
         Parameters
         ----------
-        use_cache : bool, default True
-            If True, load from cache file if available, otherwise parse and cache.
-            If False, always parse from history_output.txt files.
+        energy_only : bool, default False
+            If True, only load energy data from simulation (faster, less memory).
+            If False, load full simulation data.
         parallel : bool, default True
             If True, use parallel loading (recommended for full-state data).
             If False, use sequential loading.
+        use_cache : bool, default True
+            If True, load from cache file if available, otherwise parse and cache.
+            If False, always parse from history_output.txt files.
         verbose : bool, default False
             If True, print detailed loading information.
-
         """
 
-        if len(self.simulations) > 0:
-            print("load_energy() call is ignored: simulations set is not empty.")
+        if len(self.simulations) > 0 and energy_only:
+            print("load() call is ignored: simulations set is not empty for energy only loading.")
             return
 
         for md in self.metadata:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.load(use_cache=use_cache, parallel=parallel, energy_only=True, verbose=verbose)  # Load energy only from simulation data
+            sim._fraction_loaded = self.fractions_eq[md['run_number']] if self.fractions_eq[md['run_number']] is not None else 1.0
+            sim.load(use_cache=use_cache, parallel=parallel, energy_only=energy_only, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
 
-
-    def load(self):
-        """
-        Load all simulation runs in the set.
-        
-        """
-        self.simulations = []
-
-        for md in self.metadata:
-            run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
-            sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            if self.trimming_method == 'fraction':
-                sim._fraction_loaded = self.fractions_eq[md['run_number']] if self.fractions_eq[md['run_number']] is not None else 1.0
-                sim.load(use_cache=self.use_cache, parallel=False, energy_only=True, verbose=self.verbose)  # Load energy only from simulation data
-
-
-
-            self.simulations.append(sim)
 
     def plot(self, ncols=3, figsize=(12,16), title_fontsize=10, suptitle_fontsize=16):
         """Plot ensemble-averaged energy vs time for all simulations in the set."""
@@ -415,7 +405,7 @@ class SimulationSet:
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = sim.get_ensemble_energy_vs_time()
             try:
-                fraction = self.fractions_eq[sim.metadata["run_number"]]
+                fraction = self.fractions_eq[sim.metadata["run_number"]] if self.fractions_eq[sim.metadata["run_number"]] is not None else 1.0
             except KeyError:
                 raise KeyError(f"Equilibration fraction for run {sim.metadata['run_number']} not found in fractions_eq dictionary.")
 
