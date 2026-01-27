@@ -398,7 +398,7 @@ class SimulationSet:
 
         if not self.simulations:
             print("Loading energy data automatically...")
-            self.load_energy()
+            self.load(energy_only=True, parallel=False, use_cache=True, verbose=self.verbose)
 
         for isim, sim in enumerate(self.simulations):
 
