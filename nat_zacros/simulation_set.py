@@ -388,11 +388,23 @@ class SimulationSet:
             self.simulations.append(sim)
 
 
-    def plot(self, ncols=3, figsize=(12,16), title_fontsize=10, suptitle_fontsize=16):
+    def plot(self, ncols=3, figsize=(12,3), title_fontsize=10, suptitle_fontsize=16):
         """Plot ensemble-averaged energy vs time for all simulations in the set."""
 
         # Set up subplots
-        fig, axes = plt.subplots(int(np.ceil(len(self)/ncols)), ncols, figsize=figsize)
+
+        # ====================================================================================
+        # ------dja change 2026-01-22: 
+        #    add squeeze=False to subplots to ensure 2D axes array even for single row/column 
+        #    scale figure height according to number of rows needed
+        #    consider further adjustements figsize parameter to better fit different numbers 
+        # ====================================================================================
+        
+        nrows = int(np.ceil(len(self)/ncols))
+        figsize_scaled = (figsize[0], figsize[1] * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
+        # ====================================================================================
+
         fig_title = f'Ensemble averaged energy vs time -- {self.set_dir.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 

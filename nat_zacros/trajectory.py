@@ -39,16 +39,18 @@ class Trajectory:
         Estimate equilibration index
     load_equilibrated_states(fraction=0.5)
         Reload only equilibrated portion with full state data
+    get_accessibility_histogram()
+        Calculate histogram of site accessibility
+    get_cluster_distribution(nn_cutoff)
+        Calculate cluster size distribution
+    get_coverage_vs_time()
+        Get coverage as function of time
+    get_energy_vs_time()
+        Get energy as function of time
     get_g_ref(r_max, dr)
         Calculate reference RDF for normalization
     get_rdf(r_max, dr, g_ref, vectorized)
         Calculate radial distribution function
-    get_cluster_distribution(nn_cutoff)
-        Calculate cluster size distribution
-    get_accessibility_histogram()
-        Calculate histogram of site accessibility
-    get_coverage_vs_time()
-        Get coverage as function of time
     """
     
     def __init__(self, lattice, dirname=None):
@@ -75,62 +77,135 @@ class Trajectory:
         #
         self.folder = str(Path(dirname)) if dirname else None
         
-        
+    def get_energy_vs_time(self):
+        """
+        Get energy as a function of time.
+
+        Returns
+        -------
+        times : ndarray
+            Time points
+        energies : ndarray
+            Energies at each time point
+        """
+        return self.times, self.energies
+      
+    # def load(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False, fraction=1.0):
+    #     """
+    #     Load states from history_output.txt.
+    #     """
+    #     folder_p = Path(dirname) if dirname else Path(self.folder) if self.folder else None
+    #     try:
+    #         if energy_only:
+    #             # Fast path: scan file for configuration headers only
+    #             if fraction < 1.0:
+    #                 with open(folder_p / 'history_output.txt', 'r') as f:
+    #                     n_total = sum(1 for line in f if line.lstrip().startswith('configuration'))
+    #                 start = max(start, int((1.0 - fraction) * n_total))
+
+    #             with open(folder_p / 'history_output.txt', 'r') as f:
+    #                 idx = 0
+    #                 for line in f:
+    #                     if line.lstrip().startswith('configuration'):
+    #                         if idx < start:
+    #                             idx += 1
+    #                             continue
+    #                         if end is not None and idx >= end:
+    #                             break
+    #                         if (idx - start) % step != 0:
+    #                             idx += 1
+    #                             continue
+
+    #                         parts = line.split()
+    #                         time = float(parts[3])
+    #                         energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
+
+    #                         self.times.append(time)
+    #                         self.energies.append(energy)
+    #                         idx += 1
+    #         else:
+    #             # Single-pass streaming parse (fast)
+    #             nsites = len(self.lattice)
+
+    #             if fraction < 1.0 or end is None:
+    #                 with open(folder_p / 'history_output.txt', 'r') as f:
+    #                     n_states = sum(1 for line in f if line.lstrip().startswith('configuration'))
+    #             else:
+    #                 n_states = end
+
+    #             if fraction < 1.0:
+    #                 start = max(start, int((1.0 - fraction) * n_states))
+    #             if end is None:
+    #                 end = n_states
+
+    #             with open(folder_p / 'history_output.txt', 'r') as f:
+    #                 idx = -1
+    #                 for line in f:
+    #                     if not line.lstrip().startswith('configuration'):
+    #                         continue
+
+    #                     idx += 1
+    #                     parts = line.split()
+    #                     time = float(parts[3])
+    #                     energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
+
+    #                     if idx < start or idx >= end or ((idx - start) % step != 0):
+    #                         for _ in range(nsites):
+    #                             next(f, None)
+    #                         continue
+
+    #                     st = State(self.lattice)
+    #                     st.folder = str(folder_p)
+
+    #                     for site in range(nsites):
+    #                         site_line = next(f, None)
+    #                         if site_line is None:
+    #                             raise RuntimeError("Unexpected end of file while reading state block.")
+    #                         p = site_line.split()
+    #                         st.ads_ids[site] = int(p[1])
+    #                         st.occupation[site] = int(p[2])
+    #                         st.dentation[site] = int(p[3])
+
+    #                     self.states.append(st)
+    #                     self.times.append(time)
+    #                     self.energies.append(energy)
+
+    #     except Exception as e:
+    #         print(f'Error loading trajectory from {str(folder_p)}: {e}')
+
+    #     self.times = np.array(self.times)
+    #     self.energies = np.array(self.energies)
+
+    # ...existing code...
+                  
     def load(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False, fraction=1.0):
         """
         Load states from history_output.txt.
-        
-        Parameters
-        ----------
-        dirname : str or Path, optional
-            Override folder location
-        start : int, default 0
-            First state index to load
-        end : int, optional
-            Last state index to load (None = all)
-        step : int, default 1
-            Stride for loading states (applies to configuration indices)
-        load_energy : bool, default True
-            Whether to extract energy values
-        energy_only : bool, default False
-            If True, only load time and energy without parsing full state configurations.
-            Much faster for energy-only analysis. Recommended to use with step > 1
-            for equilibration detection.
-        fraction : float, default 1.0
-            Fraction of trajectory to keep from the end. Use to skip equilibration:
-            - fraction=1.0 loads full trajectory (default)
-            - fraction=0.5 loads last 50% of trajectory (skips first 50% for equilibration)
-            - fraction=0.7 loads last 70% of trajectory (skips first 30%)
-            Applied after determining total trajectory length, before loading states.
-            
-        Examples
-        --------
-        >>> # Load full trajectory with energy only to determine equilibration
-        >>> traj = Trajectory(lat, dirname)
-        >>> traj.load(load_energy=True, energy_only=True)
-        >>> # ... analyze energy vs time to determine equilibration fraction ...
-        >>> 
-        >>> # Reload with equilibrated portion only (last 50%)
-        >>> traj = Trajectory(lat, dirname)
-        >>> traj.load(fraction=0.5)
         """
         folder_p = Path(dirname) if dirname else Path(self.folder) if self.folder else None
         try:
             if energy_only:
-                # Fast path: scan file for configuration headers only
-                # First pass: count total configurations if fraction < 1.0
-                if fraction < 1.0:
+                # Count total configurations only if needed
+                if fraction < 1.0 or end is None:
                     with open(folder_p / 'history_output.txt', 'r') as f:
-                        n_total = sum(1 for line in f if 'configuration' in line)
-                    # Calculate start index to skip equilibration
+                        n_total = sum(1 for line in f if line.lstrip().startswith('configuration'))
+                else:
+                    n_total = end
+
+                if fraction < 1.0:
                     start = max(start, int((1.0 - fraction) * n_total))
-                
-                # Second pass: load data
+                if end is None:
+                    end = n_total
+
+                n_keep = max(0, (end - start + (step - 1)) // step)
+                self.times = np.empty(n_keep, dtype=float)
+                self.energies = np.empty(n_keep, dtype=float)
+
                 with open(folder_p / 'history_output.txt', 'r') as f:
                     idx = 0
+                    k = 0
                     for line in f:
-                        if 'configuration' in line:
-                            # Apply start/end/step filters
+                        if line.lstrip().startswith('configuration'):
                             if idx < start:
                                 idx += 1
                                 continue
@@ -139,144 +214,85 @@ class Trajectory:
                             if (idx - start) % step != 0:
                                 idx += 1
                                 continue
-                                
-                            # Parse time and energy from header
+
                             parts = line.split()
-                            time = float(parts[3])
-                            energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
-                            
-                            self.times.append(time)
-                            self.energies.append(energy)
+                            self.times[k] = float(parts[3])
+                            self.energies[k] = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
+                            k += 1
                             idx += 1
+
+                # Trim in case of mismatch
+                self.times = self.times[:k]
+                self.energies = self.energies[:k]
+
             else:
-                # Full path: load complete state configurations
-                with open(folder_p / 'history_output.txt', 'r') as f:
-                    content = f.readlines()
-                    
-                # Auto-detect header size by finding first 'configuration' line
-                # This is more robust than assuming a fixed number of header lines
-                n_header_lines = None
-                for i, line in enumerate(content):
-                    if 'configuration' in line:
-                        n_header_lines = i
-                        break
-                
-                if n_header_lines is None:
-                    raise RuntimeError(
-                        f"No 'configuration' keyword found in {folder_p / 'history_output.txt'}.\n"
-                        f"File may be empty or corrupted."
-                    )
-                
+                # Single-pass streaming parse (fast)
                 nsites = len(self.lattice)
-                n_states = (len(content) - n_header_lines) // (nsites + 1)
-                
-                # Apply fraction to determine start index (skip equilibration)
+
+                if fraction < 1.0 or end is None:
+                    with open(folder_p / 'history_output.txt', 'r') as f:
+                        n_states = sum(1 for line in f if line.lstrip().startswith('configuration'))
+                else:
+                    n_states = end
+
                 if fraction < 1.0:
                     start = max(start, int((1.0 - fraction) * n_states))
-                
                 if end is None:
                     end = n_states
-                
-                for idx in range(start, min(end, n_states), step):
-                    # Parse configuration header line
-                    header_line = content[n_header_lines + idx * (nsites + 1)]
-                    
-                    if 'configuration' in header_line:
-                        parts = header_line.split()
+
+                n_keep = max(0, (end - start + (step - 1)) // step)
+                self.times = np.empty(n_keep, dtype=float)
+                self.energies = np.empty(n_keep, dtype=float)
+                self.states = [None] * n_keep
+
+                with open(folder_p / 'history_output.txt', 'r') as f:
+                    idx = -1
+                    k = 0
+                    for line in f:
+                        if not line.lstrip().startswith('configuration'):
+                            continue
+
+                        idx += 1
+                        parts = line.split()
                         time = float(parts[3])
                         energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
-                    else:
-                        raise RuntimeError(
-                            f"Error parsing history_output.txt at state {idx}:\n"
-                            f"Expected 'configuration' keyword not found in header line.\n"
-                            f"Line content: '{header_line.strip()}'\n"
-                            f"This indicates either file corruption or an incompatible Zacros output format.\n"
-                            f"File: {folder_p / 'history_output.txt'}"
-                        )
-                    
-                    # Load full state configuration
-                    st = State(self.lattice)
-                    st.folder = str(folder_p)
-                    st.load(idx=idx)
-                    self.states.append(st)
-                    self.times.append(time)
-                    self.energies.append(energy)
-                
+
+                        if idx < start or idx >= end or ((idx - start) % step != 0):
+                            for _ in range(nsites):
+                                next(f, None)
+                            continue
+
+                        st = State(self.lattice)
+                        st.folder = str(folder_p)
+
+                        for site in range(nsites):
+                            site_line = next(f, None)
+                            if site_line is None:
+                                raise RuntimeError("Unexpected end of file while reading state block.")
+                            p = site_line.split()
+                            st.ads_ids[site] = int(p[1])
+                            st.occupation[site] = int(p[2])
+                            st.dentation[site] = int(p[3])
+
+                        self.states[k] = st
+                        self.times[k] = time
+                        self.energies[k] = energy
+                        k += 1
+
+                # Trim in case of mismatch
+                self.states = self.states[:k]
+                self.times = self.times[:k]
+                self.energies = self.energies[:k]
+
         except Exception as e:
             print(f'Error loading trajectory from {str(folder_p)}: {e}')
-            
-        self.times = np.array(self.times)
-        self.energies = np.array(self.energies)
         
-    def add_state(self, state, time=None, energy=None):
-        """
-        Add a state to the trajectory.
-        
-        Parameters
-        ----------
-        state : State object
-            Configuration to add
-        time : float, optional
-            Time point for this state
-        energy : float, optional
-            Total energy for this state
-        """
-        self.states.append(state)
-        self.times.append(time)
-        self.energies.append(energy)
-        
-    def get_energy_vs_time(self):
-        """
-        Get energy as a function of time.
-        
-        Returns
-        -------
-        times : ndarray
-            Time points
-        energies : ndarray
-            Energy at each time point
-        """
-        return self.times, self.energies
-        
-    def estimate_equilibration(self, fraction=0.5, method='fraction'):
-        """
-        Estimate the index where equilibration begins.
-        
-        Parameters
-        ----------
-        fraction : float, default 0.5
-            Fraction of trajectory to skip (for method='fraction')
-        method : str, default 'fraction'
-            Method to use:
-            - 'fraction': Skip first fraction of trajectory
-            - 'energy_plateau': Detect when energy variance stabilizes (future)
-            
-        Returns
-        -------
-        int
-            Index where equilibration is considered to start
-            
-        Notes
-        -----
-        The default 'fraction' method is simple but effective for most cases.
-        Energy typically equilibrates in the first 30-50% of a well-run simulation.
-        """
-        if method == 'fraction':
-            return int(fraction * len(self))
-        else:
-            raise NotImplementedError(f"Method '{method}' not yet implemented")
-            
         
     def load_equilibrated_states(self, fraction=0.5, method='fraction', dirname=None):
         """
         Reload trajectory with full state data only for equilibrated portion.
         
-        This is a two-phase loading strategy:
-        1. Uses existing times/energies to determine equilibration point
-        2. Reloads only equilibrated configurations with full state data
-        
-        This avoids loading and parsing non-equilibrated states that would be
-        discarded anyway, making RDF/cluster analysis much more efficient.
+       
         
         Parameters
         ----------
