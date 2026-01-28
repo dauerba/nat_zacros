@@ -57,21 +57,21 @@ class SimulationSet:
     >>> nzset = SimulationSet()
     """
 
-    def __init__(self, set_dir, runs_dir='jobs', results_dir='results', log_file='jobs.log'):
+    def __init__(self, set_dir, log_file='jobs.log', results_dir='results', runs_dir='jobs'):
         """
         Initialize a SimulationSet.
         
         Parameters
         ----------
+        set_dir : Path
+            Path to simulation set directory (e.g., 'fn_3leed')
+            This directory should contain jobs.log and the runs subdirectory
         log_file : str, optional
             Name of the log file (default: 'jobs.log')
         results_dir : str, optional
             Name of the subdirectory for storing results (default: 'results')
         runs_dir : str, optional
             Name of the subdirectory containing simulation runs (default: 'jobs')
-        set_dir : Path
-            Path to simulation set directory (e.g., 'fn_3leed')
-            This directory should contain jobs.log and the runs subdirectory
         """
         
         self.log_file           = log_file
@@ -79,7 +79,6 @@ class SimulationSet:
         self.results_dir        = results_dir
         self.runs_dir           = runs_dir
         self.set_dir            = Path(set_dir)
-        self.use_cache          = False             # default caching behavior
         self.verbose            = False             # default verbosity
         self.simulations        = []
         
@@ -136,18 +135,25 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
-
-    def clear_cache(self, verbose=False):
+    def clear_cache(self, runs=None, verbose=False):
         """
-        Clear cached data for all simulation runs in the set.
+        Clear cached data for simulation runs in the set.
+        Parameters
+        ----------
+        runs : list of int or None, default None
+            If list of int, clear cache only for specified run numbers. If None, clear for all runs.
+        verbose : bool, default False
+            If True, print detailed clearing information.
         
         """
         
-        for md in self.metadata:
+        md_to_clear = self.metadata if runs is None else [md for md in self.metadata if md['run_number'] in runs]
+        for md in md_to_clear:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             sim.clear_cache(verbose=verbose)
 
+# Warning! Come back to this later
     def clear_rdf_normalization_cache(self):
         """
         Clear cached rdf normalization data.
@@ -166,6 +172,7 @@ class SimulationSet:
             print(f"No g_ref cache to clear")
     
 
+# Warning! Come back to this later
     def find_equilibrium_fraction_fit1(self, threshold=0.01, min_equilibrium_points=10):
         """
         Determine equilibrium points for all simulations in the set by fitting an exponential decay model.  
@@ -258,6 +265,7 @@ class SimulationSet:
 
         return fit_results
             
+# Warning! Come back to this later
     def find_equilibrium_fraction_fit2(self, threshold=0.01, min_equilibrium_points=10, 
                                        a0_fixed=True, a0_guess_points=10):
 
@@ -362,37 +370,31 @@ class SimulationSet:
         return fit_results
 
 
-    def load(self, energy_only=False, parallel=True, use_cache=True, verbose=False):
+    def load(self, cache=None, parallel=True, runs=None, verbose=False):
         """
-        Load data for all simulation runs in the set with caching support.
+        Load data for simulation runs.
         
         Parameters
         ----------
-        energy_only : bool, default False
-            If True, only load energy data from simulation (faster, less memory).
-            If False, load full simulation data.
+        cache : str or None, default None
+            If str, cache to a specified file format. If None, do not use caching.
         parallel : bool, default True
             If True, use parallel loading (recommended for full-state data).
             If False, use sequential loading.
-        use_cache : bool, default True
-            If True, load from cache file if available, otherwise parse and cache.
-            If False, always parse from history_output.txt files.
+        runs : list of int or None, default None
+            If list of int, load only specified run numbers. If None, load all runs.
         verbose : bool, default False
             If True, print detailed loading information.
         """
-
-        if len(self.simulations) > 0 and energy_only:
-            print("load() call is ignored: simulations set is not empty for energy only loading.")
-            return
-
-        for md in self.metadata:
+        md_to_load = self.metadata if runs is None else [md for md in self.metadata if md['run_number'] in runs]
+        for md in md_to_load:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim._fraction_loaded = self.fractions_eq[md['run_number']] if self.fractions_eq[md['run_number']] is not None else 1.0
-            sim.load(use_cache=use_cache, parallel=parallel, energy_only=energy_only, verbose=verbose)  # Load simulation data
+            sim.load(cache=cache, parallel=parallel, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
 
 
+# Warning! Come back to this later
     def plot(self, ncols=3, figsize=(12,3), title_fontsize=10, suptitle_fontsize=16):
         """Plot ensemble-averaged energy vs time for all simulations in the set."""
 
