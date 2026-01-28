@@ -69,7 +69,7 @@ class SimulationSet:
             Name of the subdirectory for storing results (default: 'results')
         runs_dir : str, optional
             Name of the subdirectory containing simulation runs (default: 'jobs')
-        set_dir : str or Path
+        set_dir : Path
             Path to simulation set directory (e.g., 'fn_3leed')
             This directory should contain jobs.log and the runs subdirectory
         """
@@ -153,7 +153,12 @@ class SimulationSet:
         Clear cached rdf normalization data.
         
         """
-        gref_file = self.results_dir / 'gref.pkl'
+
+        # dja change 2026-01-27 add self.set_dir prefix to gref_file path
+        # gref_file =                    self.results_dir / 'gref.pkl'
+        gref_file = self.set_dir / self.results_dir / 'gref.pkl'
+
+        
         if gref_file.exists():
             gref_file.unlink()
             print(f"Cleared g_ref cache: {gref_file.name}")
@@ -461,7 +466,7 @@ class SimulationSet:
                 # Shade equilibrium region in percent coordinates
                 eq_idx = int(np.round((1 - fraction) * len(times)))
                 left_p = (times_arr[eq_idx] / max_time) * 100.0
-                ax.axvspan(left_p, 100.0, alpha=0.2, color='green')
+                ax.axvspan(left_p, 100.0, alpha=0.2, color='green') 
             else:
                 # Fallback: no valid times, plot energies vs times_plot as-is
                 ax.plot(times_plot, energies, marker='o', linestyle='-', markersize=2)
@@ -471,12 +476,14 @@ class SimulationSet:
                 if len(times_plot) > 0:
                     eq_idx = int(np.round((1 - fraction) * len(times)))
                     ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
+                else:
+                    eq_idx = 0  # no shading possible
 
-            
-
-            # Set y-axis limits based on equilibrium range
-            equilibrium_energies = energies[eq_idx:]
-            ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
+            # Set y-axis limits based on equilibrium range (guard empty)
+            if len(energies) > 0:
+                equilibrium_energies = energies[eq_idx:] if eq_idx < len(energies) else energies
+                if len(equilibrium_energies) > 0:
+                    ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
