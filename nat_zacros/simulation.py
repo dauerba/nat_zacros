@@ -15,6 +15,12 @@ from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
 
+# Cache file extensions dictionary
+extensions = {
+    'pickle': 'pkl',
+    'text': 'dat'
+}
+
 class Simulation:
     """
     Manages a Zacros simulation run with multiple trajectories.
@@ -27,12 +33,6 @@ class Simulation:
     
     Attributes
     ----------
-    _fraction_loaded : float
-        Fraction of trajectory from end to load:
-            - 1.0 = keep full trajectory (default)
-            - 0.7 = keep last 70% (discard first 30%)
-    eq_method : str
-		Equilibration detection method ('fraction' by default)
     is_valid : bool
         True if something wrong with run data (corrupted, missing etc.)
     lattice : Lattice
@@ -58,7 +58,7 @@ class Simulation:
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
     """
 
-    def __init__(self, run_dir, fraction=1.0, metadata=None, log_file='jobs.log', results_dirname='results'):
+    def __init__(self, run_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
         """
         Initialize a simulation.
         
@@ -67,23 +67,14 @@ class Simulation:
         run_dir : str or Path
             Path to simulation run directory (e.g., 'fn_3leed/jobs/1')
             This directory should contain traj_1, traj_2, ... subdirectories
-        fraction : float, optional
-            Fraction of trajectory to keep from end:
-                - 1.0 = keep full trajectory (default)
-                - 0.7 = keep last 70% (discard first 30%)
         metadata : dict, optional
             Pre-loaded metadata (if available)
         results_dirname : str, optional
             Name of the results directory (default: 'results')
 
-        Notes
-        -----
-        The fraction should be determined from exploratory energy-only analysis
         """
 
-        self._fraction_loaded = fraction
         self.is_valid = True  # Assume run is valid initially
-        self.eq_method = 'fraction'  # Default equilibration method
         self.run_dir = Path(run_dir)
         
         # Validate run directory exists
@@ -139,23 +130,32 @@ class Simulation:
                     else:
                         self._load_metadata(log_file)
         
-    def clear_cache(self, verbose=False):
+    def clear_cache(self, cache=None, verbose=False):
         """
-        Clear cached trajectory data files.
+        Clear cached trajectory data files for the specified cache type.
         
+        Parameters
+        ----------
+        cache : str, list of str, or None, default None
+            If str, clear cache of specified file format. If None, clear all cache types.
+        verbose : bool, default False
+            If True, print detailed cache clearing information.
         """
-        cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
-        if cache_file.exists():
-            cache_file.unlink()
-            if verbose:
-                print(f"Cleared trajectory cache: {cache_file.name}")
-        else:
-            if verbose:
-                print(f"No trajectory cache to clear")
 
-    def get_fraction_loaded(self):
-        """Get equilibration fraction."""
-        return self._fraction_loaded   
+        if cache is None:
+            formats_to_clear = Simulation.extensions.keys()
+        elif type(cache) is list:
+            formats_to_clear = cache
+        elif type(cache) is str:
+            formats_to_clear = [cache]
+
+        for format in formats_to_clear:
+            cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs.{Simulation.extensions[format]}"
+            if cache_file.exists():
+                cache_file.unlink()
+                if verbose:
+                    print(f"Cleared trajectory cache: {cache_file.name}")
+
 
     def _load_metadata(self, log_file):
         """
@@ -218,130 +218,110 @@ class Simulation:
             'interactions': matching_entry[5][1:]
         }
 
-    def _load_single_trajectory(self, traj_dir, energy_only):
+    def _load_single_trajectory(self, traj_dir):
         """
         Helper function for parallel trajectory loading.
         Parameters
         ----------
         traj_dir : Path
             Directory containing trajectory data
-        energy_only : bool
-            If True, only load times and energies (much faster).
-            If False, load full state configurations.
         Returns
         -------
         trajectory
-            Trajectory with equilibrated states loaded
+            Trajectory object
         """
+
         traj = Trajectory(self.lattice, traj_dir)
-        traj.load(fraction=self._fraction_loaded, load_energy=True, energy_only=energy_only)
+        traj.load()
         return traj
 
-    def _load_trajectories_parallel(self, energy_only=False, n_workers=None):
+    def _load_trajectories_parallel(self, workers=None):
         """
         Load multiple trajectories in parallel.
         Parameters
         ----------
-        energy_only : bool, default False
-            If True, only load times and energies (much faster).
-            If False, load full state configurations.
-        n_workers : int, optional
+        workers : int, optional
             Number of parallel workers. If None, uses all available cores.
         Returns
         -------
         list of trajectories
-            Loaded trajectories with equilibrated states
+            Loaded trajectories
         """
-        try:
-            from tqdm import tqdm
-            use_tqdm = True
-        except ImportError:
-            use_tqdm = False
+
         if len(self.traj_dirs) == 0:
             return []
-        if n_workers is None:
-            n_workers = mp.cpu_count()
-        print(f"Loading {len(self.traj_dirs)} trajectories in parallel using {n_workers} workers...")
-        energy_onlys = [energy_only] * len(self.traj_dirs)
-        with ProcessPoolExecutor(max_workers=n_workers) as executor:
-            if use_tqdm:
-                trajs = list(tqdm(executor.map(self._load_single_trajectory, self.traj_dirs, energy_onlys),
-                                total=len(self.traj_dirs),
-                                desc="Loading trajectories",
-                                unit="traj"))
-            else:
-                trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs, energy_onlys))
+        if workers is None:
+            workers = mp.cpu_count()
+        print(f"Loading {len(self.traj_dirs)} trajectories in parallel using {workers} workers...")
+
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs))
+
         print(f"Successfully loaded {len(trajs)} trajectories")
 
         return trajs
 
 
-    def load(self, use_cache=True, parallel=True, energy_only=False, verbose=False):
+    def load(self, cache=None, workers=mp.cpu_count(), verbose=False):
         """
         Load trajectory data with caching support.
 
         Parameters
         ----------
-        use_cache : bool, default True
-            If True, load from cache file if available, otherwise parse and cache.
-            If False, always parse from history_output.txt files.
-        parallel : bool, default True
-            If True, use parallel loading (recommended for full-state data).
-            If False, use sequential loading.
-        energy_only : bool, default False
-            If True, only load energy data from trajectories (faster, less memory).
-            If False, load full trajectory data.
+        cache : str or None, default None
+            If str, use caching with specified file format. If None, do not use caching.
+        workers : int or None, default mp.cpu_count()
+            Number of parallel workers to use for loading.
+            If None, load sequentially.
         verbose : bool, default False
             If True, print detailed loading information.
-
-        Notes
-        -----
-        Cache files are stored as:
-        - Trajectories: results/{run_number}_trajs_eq.pkl
-
-        The loaded trajectories use the fraction specified during initialization of the cache.
         """
-        cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs_eq.pkl"
 
-        # Try loading from cache
-        if use_cache and cache_file.exists():
-            if verbose: print(f"Loading trajectories from cache: {cache_file.name}")
-            with open(cache_file, 'rb') as f:
-                self.trajectories = pickle.load(f)
-            if verbose: print(f"Loaded {len(self.trajectories)} cached trajectories")
-            return
+        # Determine cache file path and extension
+        if cache is not None:
+            cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs.{Simulation.extensions[cache]}"
+
+            # Try loading from cache
+            if cache_file.exists():
+                if verbose: print(f"Loading trajectories from cache: {cache_file.name}")
+
+                if cache=='pickle':
+                    with open(cache_file, 'rb') as f:
+                        self.trajectories = pickle.load(f)
+ 
+                if verbose: print(f"Loaded {len(self.trajectories)} cached trajectories")
+                return
 
         # Load trajectories from files
         if verbose:
             print(f"Loading {len(self.traj_dirs)} trajectories...")
-            print(f"  Equilibration fraction: {self._fraction_loaded} (keeping last {self._fraction_loaded*100:.0f}%)")
-            print(f"  Loading mode: {'parallel' if parallel else 'sequential'}")
-            print(f"  Energy only: {energy_only}")
+            print(f"  Loading mode: {'sequential' if workers is None else 'parallel with ' + str(workers) + ' workers'}")
 
-        if parallel:
+        if workers is not None:
             # Use parallel loading
-            self.trajectories = self._load_trajectories_parallel(
-                energy_only=energy_only,
-                n_workers=None
-            )
+            self.trajectories = self._load_trajectories_parallel(workers=workers)
         else:
             # Sequential loading
             self.trajectories = []
             for traj_dir in self.traj_dirs:
-                self.trajectories.append(self._load_single_trajectory(traj_dir, energy_only=energy_only))
+                self.trajectories.append(self._load_single_trajectory(traj_dir))
         if verbose:
             print(f"Loaded {len(self.trajectories)} trajectories")
             print(f"  States per trajectory: {len(self.trajectories[0].states)}")
             print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
 
         # Save to cache
-        if use_cache:
+        if cache is not None:
             if verbose: print(f"Saving to cache: {cache_file}")
-            with open(cache_file, 'wb') as f:
-                pickle.dump(self.trajectories, f)
+
+            if cache=='pickle':
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(self.trajectories, f)
+
             size_mb = cache_file.stat().st_size / 1024**2
             if verbose: print(f"Cache saved: {size_mb:.1f} MB")
 
+# Warning! Come back to this later
     def get_ensemble_rdf(self, r_max=40.0, dr=0.1):
         """
         Compute ensemble-averaged radial distribution function.
@@ -407,6 +387,7 @@ class Simulation:
         print(f"RDF computation complete")
         return r, g_avg, g_std
     
+# Warning! Come back to this later
     def get_ensemble_energy_vs_time(self, n_bins=100):
         """
         Compute ensemble-averaged energy as function of time.
@@ -518,8 +499,7 @@ class Simulation:
         return (
             f"simulation(run={self.metadata['run_number']}, "
             f"T={self.metadata['temperature']}K, "
-            f"θ={self.metadata['coverage']:.3f}, "
-            f"fraction={self._fraction_loaded}{traj_info})"
+            f"θ={self.metadata['coverage']:.3f} "
         )
     
     def __len__(self):

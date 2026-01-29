@@ -13,12 +13,13 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator, FuncFormatter
 import numpy as np
 from lmfit import Model
-#import multiprocessing as mp
+import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
 from .simulation import Simulation
+
 
 class SimulationSet:
     """
@@ -135,23 +136,25 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
-    def clear_cache(self, runs=None, verbose=False):
+    def clear_cache(self, cache=None, runs=None, verbose=False):
         """
-        Clear cached data for simulation runs in the set.
+        Clear cached data for simulation runs in the set for the specified cache type.
         Parameters
         ----------
+        cache : str or None, default None
+            If str, clear cache of specified file format. If None, clear all cache types.
         runs : list of int or None, default None
             If list of int, clear cache only for specified run numbers. If None, clear for all runs.
         verbose : bool, default False
             If True, print detailed clearing information.
         
         """
-        
+       
         md_to_clear = self.metadata if runs is None else [md for md in self.metadata if md['run_number'] in runs]
         for md in md_to_clear:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.clear_cache(verbose=verbose)
+            sim.clear_cache(cache=cache, verbose=verbose)
 
 # Warning! Come back to this later
     def clear_rdf_normalization_cache(self):
@@ -370,7 +373,7 @@ class SimulationSet:
         return fit_results
 
 
-    def load(self, cache=None, parallel=True, runs=None, verbose=False):
+    def load(self, cache=None, workers=mp.cpu_count(), runs=None, verbose=False):
         """
         Load data for simulation runs.
         
@@ -378,19 +381,27 @@ class SimulationSet:
         ----------
         cache : str or None, default None
             If str, cache to a specified file format. If None, do not use caching.
-        parallel : bool, default True
-            If True, use parallel loading (recommended for full-state data).
-            If False, use sequential loading.
+        workers : int, default mp.cpu_count()
+            Number of worker processes to use for parallel loading.
+            If None, load serially.
+        runs : list of int or None, default None
+            If list of int, load only specified run numbers. If None, load all runs.
+        verbose : bool, default False
+            If True, print detailed loading information.
         runs : list of int or None, default None
             If list of int, load only specified run numbers. If None, load all runs.
         verbose : bool, default False
             If True, print detailed loading information.
         """
+        
+        if cache is not None and cache not in Simulation.extensions:
+            raise ValueError(f"Unsupported cache format: {cache}. Supported formats: {list(Simulation.extensions.keys())}")
+        
         md_to_load = self.metadata if runs is None else [md for md in self.metadata if md['run_number'] in runs]
         for md in md_to_load:
             run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
             sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.load(cache=cache, parallel=parallel, verbose=verbose)  # Load simulation data
+            sim.load(cache=cache, workers=workers, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
 
 

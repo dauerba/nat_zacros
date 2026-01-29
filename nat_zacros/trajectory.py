@@ -9,7 +9,6 @@ import numpy as np
 from pathlib import Path
 from .state import State
 
-
 class Trajectory:
     """
     Container for a sequence of lattice states over time.
