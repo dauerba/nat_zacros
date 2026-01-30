@@ -23,6 +23,7 @@ class Trajectory:
         Time points for each state
     energies : ndarray
         Total energy for each state
+# Warning 307!
     folder : str (must be str for pickle compatibility)
         Directory containing trajectory data
         
@@ -89,295 +90,112 @@ class Trajectory:
         """
         return self.times, self.energies
       
-    # def load(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False, fraction=1.0):
-    #     """
-    #     Load states from history_output.txt.
-    #     """
-    #     folder_p = Path(dirname) if dirname else Path(self.folder) if self.folder else None
-    #     try:
-    #         if energy_only:
-    #             # Fast path: scan file for configuration headers only
-    #             if fraction < 1.0:
-    #                 with open(folder_p / 'history_output.txt', 'r') as f:
-    #                     n_total = sum(1 for line in f if line.lstrip().startswith('configuration'))
-    #                 start = max(start, int((1.0 - fraction) * n_total))
-
-    #             with open(folder_p / 'history_output.txt', 'r') as f:
-    #                 idx = 0
-    #                 for line in f:
-    #                     if line.lstrip().startswith('configuration'):
-    #                         if idx < start:
-    #                             idx += 1
-    #                             continue
-    #                         if end is not None and idx >= end:
-    #                             break
-    #                         if (idx - start) % step != 0:
-    #                             idx += 1
-    #                             continue
-
-    #                         parts = line.split()
-    #                         time = float(parts[3])
-    #                         energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
-
-    #                         self.times.append(time)
-    #                         self.energies.append(energy)
-    #                         idx += 1
-    #         else:
-    #             # Single-pass streaming parse (fast)
-    #             nsites = len(self.lattice)
-
-    #             if fraction < 1.0 or end is None:
-    #                 with open(folder_p / 'history_output.txt', 'r') as f:
-    #                     n_states = sum(1 for line in f if line.lstrip().startswith('configuration'))
-    #             else:
-    #                 n_states = end
-
-    #             if fraction < 1.0:
-    #                 start = max(start, int((1.0 - fraction) * n_states))
-    #             if end is None:
-    #                 end = n_states
-
-    #             with open(folder_p / 'history_output.txt', 'r') as f:
-    #                 idx = -1
-    #                 for line in f:
-    #                     if not line.lstrip().startswith('configuration'):
-    #                         continue
-
-    #                     idx += 1
-    #                     parts = line.split()
-    #                     time = float(parts[3])
-    #                     energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
-
-    #                     if idx < start or idx >= end or ((idx - start) % step != 0):
-    #                         for _ in range(nsites):
-    #                             next(f, None)
-    #                         continue
-
-    #                     st = State(self.lattice)
-    #                     st.folder = str(folder_p)
-
-    #                     for site in range(nsites):
-    #                         site_line = next(f, None)
-    #                         if site_line is None:
-    #                             raise RuntimeError("Unexpected end of file while reading state block.")
-    #                         p = site_line.split()
-    #                         st.ads_ids[site] = int(p[1])
-    #                         st.occupation[site] = int(p[2])
-    #                         st.dentation[site] = int(p[3])
-
-    #                     self.states.append(st)
-    #                     self.times.append(time)
-    #                     self.energies.append(energy)
-
-    #     except Exception as e:
-    #         print(f'Error loading trajectory from {str(folder_p)}: {e}')
-
-    #     self.times = np.array(self.times)
-    #     self.energies = np.array(self.energies)
-
-    # ...existing code...
-                  
-    def load(self, dirname=None, start=0, end=None, step=1, load_energy=True, energy_only=False, fraction=1.0):
+                
+    def load(self, dirname=None, start=0, end=None, step=1):
         """
         Load states from history_output.txt.
+
+        Parameters
+        ----------
+        dirname : str or Path, optional
+            Override folder location
+        start : int, default 0
+            Start index for loading states
+        end : int, optional
+            End index for loading states
+        step : int, default 1
+            Step size for loading states
         """
+
         folder_p = Path(dirname) if dirname else Path(self.folder) if self.folder else None
         try:
-            if energy_only:
-                # Count total configurations only if needed
-                if fraction < 1.0 or end is None:
-                    with open(folder_p / 'history_output.txt', 'r') as f:
-                        n_total = sum(1 for line in f if line.lstrip().startswith('configuration'))
-                else:
-                    n_total = end
+            # Single-pass streaming parse (fast)
+            nsites = len(self.lattice)
 
-                if fraction < 1.0:
-                    start = max(start, int((1.0 - fraction) * n_total))
-                if end is None:
-                    end = n_total
+            # Read in a trajectory from history_output.txt
+            with open(folder_p / 'history_output.txt', 'r') as f: 
+                content = f.readlines()
 
-                n_keep = max(0, (end - start + (step - 1)) // step)
-                self.times = np.empty(n_keep, dtype=float)
-                self.energies = np.empty(n_keep, dtype=float)
+            # Count total number of states in trajectory
+            n_states = sum(line.lstrip().startswith('configuration') for line in content)
 
-                with open(folder_p / 'history_output.txt', 'r') as f:
-                    idx = 0
-                    k = 0
-                    for line in f:
-                        if line.lstrip().startswith('configuration'):
-                            if idx < start:
-                                idx += 1
-                                continue
-                            if end is not None and idx >= end:
-                                break
-                            if (idx - start) % step != 0:
-                                idx += 1
-                                continue
+            if end is None:
+                end = n_states - 1
+            if end > n_states-1 or end < 0:
+                print(f'Warning: end index {end} is out of range (0 to {n_states-1}), adjusting to {n_states-1}.')
+                end = n_states - 1
+            if start > n_states-1 or start < 0:
+                print(f'Warning: start index {start} is out of range (0 to {n_states-1}), adjusting to 0.')
+                start = 0
 
-                            parts = line.split()
-                            self.times[k] = float(parts[3])
-                            self.energies[k] = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
-                            k += 1
-                            idx += 1
+            n_keep = max(0, (end + 1 - start + (step - 1)) // step)
+            self.times = np.empty(n_keep, dtype=float)
+            self.energies = np.empty(n_keep, dtype=float)
+            self.states = [None] * n_keep
 
-                # Trim in case of mismatch
-                self.times = self.times[:k]
-                self.energies = self.energies[:k]
+            # Find the first configuration line
+            pos = 0
+            while pos < len(content) and not content[pos].lstrip().startswith('configuration'):
+                pos += 1
+            
+            # Find the second configuration line to determine block size
+            pos2 = pos + 1
+            while pos2 < len(content) and not content[pos2].lstrip().startswith('configuration'):
+                pos2 += 1
+            
+            block_size = pos2 - pos  # Lines per configuration block
+            # Check consistency
+            expected_block_size = 1 + nsites  # 1 header + nsites data
+            if block_size != expected_block_size:
+                raise ValueError(f'block size: {block_size}, expected {expected_block_size}.')
 
-            else:
-                # Single-pass streaming parse (fast)
-                nsites = len(self.lattice)
+            k = 0
+            idx = -1
+            while pos < len(content):
+                line = content[pos]
 
-                if fraction < 1.0 or end is None:
-                    with open(folder_p / 'history_output.txt', 'r') as f:
-                        n_states = sum(1 for line in f if line.lstrip().startswith('configuration'))
-                else:
-                    n_states = end
+                idx += 1
+                try:
+                    parts = line.split()
+                    time = float(parts[3])
+                    energy = float(parts[5])
+                except (ValueError, IndexError):
+                    raise ValueError(f'{str(folder_p)}: Failed to parse line: {line.strip()}')
 
-                if fraction < 1.0:
-                    start = max(start, int((1.0 - fraction) * n_states))
-                if end is None:
-                    end = n_states
+                if idx < start or idx > end or ((idx - start) % step != 0):
+                    pos += block_size  # Skip header + nsites data lines
+                    continue
 
-                n_keep = max(0, (end - start + (step - 1)) // step)
-                self.times = np.empty(n_keep, dtype=float)
-                self.energies = np.empty(n_keep, dtype=float)
-                self.states = [None] * n_keep
+                st = State(self.lattice)
+                st.folder = str(folder_p)
 
-                with open(folder_p / 'history_output.txt', 'r') as f:
-                    idx = -1
-                    k = 0
-                    for line in f:
-                        if not line.lstrip().startswith('configuration'):
-                            continue
+                for site in range(nsites):
+                    site_line = content[pos + 1 + site]
+                    p = site_line.split()
+                    st.ads_ids[site] = int(p[1])
+                    st.occupation[site] = int(p[2])
+                    st.dentation[site] = int(p[3])
 
-                        idx += 1
-                        parts = line.split()
-                        time = float(parts[3])
-                        energy = float(parts[5]) if load_energy and len(parts) > 5 else 0.0
+                pos += block_size  # Move to next configuration block
+                self.states[k] = st
+                self.times[k] = time
+                self.energies[k] = energy
+                k += 1
 
-                        if idx < start or idx >= end or ((idx - start) % step != 0):
-                            for _ in range(nsites):
-                                next(f, None)
-                            continue
-
-                        st = State(self.lattice)
-                        st.folder = str(folder_p)
-
-                        for site in range(nsites):
-                            site_line = next(f, None)
-                            if site_line is None:
-                                raise RuntimeError("Unexpected end of file while reading state block.")
-                            p = site_line.split()
-                            st.ads_ids[site] = int(p[1])
-                            st.occupation[site] = int(p[2])
-                            st.dentation[site] = int(p[3])
-
-                        self.states[k] = st
-                        self.times[k] = time
-                        self.energies[k] = energy
-                        k += 1
-
-                # Trim in case of mismatch
-                self.states = self.states[:k]
-                self.times = self.times[:k]
-                self.energies = self.energies[:k]
+            # Trim in case of mismatch
+            self.states = self.states[:k]
+            self.times = self.times[:k]
+            self.energies = self.energies[:k]
 
         except Exception as e:
             print(f'Error loading trajectory from {str(folder_p)}: {e}')
         
         
-    def load_equilibrated_states(self, fraction=0.5, method='fraction', dirname=None):
-        """
-        Reload trajectory with full state data only for equilibrated portion.
-        
-       
-        
-        Parameters
-        ----------
-        fraction : float, default 0.5
-            Fraction of trajectory to skip for equilibration
-        method : str, default 'fraction'
-            Method for equilibration detection
-        dirname : str or Path, optional
-            Override folder location
-            
-        Returns
-        -------
-        None
-            Modifies self.states in place, clearing old states and loading
-            only equilibrated configurations.
-            
-        Examples
-        --------
-        >>> # Phase 1: Fast energy-only loading
-        >>> traj = Trajectory(lat, dirname)
-        >>> traj.load(energy_only=True)
-        >>> 
-        >>> # Phase 2: Reload equilibrated states for analysis
-        >>> traj.load_equilibrated_states(fraction=0.5)
-        >>> r, g = traj.get_rdf()  # Now works with full state data
-        
-        Notes
-        -----
-        Requires that times/energies are already loaded (from energy_only mode).
-        Will clear existing states and reload from file.
-        """
-        if len(self.times) == 0:
-            raise RuntimeError("No trajectory data loaded. Run load() first.")
-            
-        # Determine equilibration index
-        eq_idx = self.estimate_equilibration(fraction=fraction, method=method)
-        
-        # Clear existing states
-        self.states = []
-        
-        # Reload only equilibrated portion with full state data
-        folder = Path(dirname) if dirname else Path(self.folder) if self.folder else None
-        
-        if folder is None:
-            raise RuntimeError('Error: folder not specified')
-        
-        try:
-            # Reload with full state parsing, starting from equilibration point
-            # Keep existing times/energies, just populate states
-            for idx in range(eq_idx, len(self.times)):
-                st = State(self.lattice)
-                st.folder = folder
-                st.load(idx=idx)
-                self.states.append(st)
-                
-        except Exception as e:
-            print(f'Error loading equilibrated states from {str(folder)}: {e}')
-    
     # ==========================================================================
     # RDF (Radial Distribution Function) Analysis Methods
     # ==========================================================================
-    #
-    # PERFORMANCE NOTES:
-    # ------------------
-    # The RDF methods have been heavily optimized through vectorization.
-    # Key performance characteristics:
-    #
-    # 1. get_rdf() with vectorized=True (default):
-    #    - Uses lattice.pairwise_distances_pbc() for vectorized distance calculations
-    #    - 50-100x faster than nested Python loops
-    #    - Typical: 2s for 10 trajectories × 100 states
-    #
-    # 2. Sequential vs Parallel:
-    #    - Sequential loop over trajectories: ~2s for typical datasets
-    #    - Parallel RDF functions: ~3-5s (slower due to 2-4s overhead!)
-    #    - Recommendation: Use simple sequential loop for RDF computation
-    #
-    # 3. When parallel RDF helps:
-    #    - Only beneficial when computation time >> 30 seconds
-    #    - Typically: >50 trajectories or very large systems
-    #    - Always benchmark before using parallel functions
-    #
-    # See module docstring for complete performance analysis.
-    # ==========================================================================
-    
-    def get_g_ref(self, r_max=None, dr=0.1, vectorized=True):
+
+    def get_g_ref(self, r_max=None, dr=0.1):
         """
         Calculate reference RDF for full lattice (all sites, coverage=1).
         
@@ -390,8 +208,6 @@ class Trajectory:
             Maximum distance for RDF
         dr : float, default 0.1
             Bin width in Angstroms
-        vectorized : bool, default True
-            Use vectorized distance calculation for all pairs
             
         Returns
         -------
@@ -416,29 +232,19 @@ class Trajectory:
         all_coords = self.lattice.coordinates
         n_sites = len(all_coords)
         counts = np.zeros(n_bins, dtype=int)
-        if vectorized:
-            # Vectorized calculation using pairwise_distances_pbc
-            dists_matrix = self.lattice.pairwise_distances_pbc(all_coords)
-            mask = np.triu(np.ones(dists_matrix.shape, dtype=bool), k=1)
-            dists = dists_matrix[mask]
-            valid_dists = dists[(dists > 0) & (dists <= r_max)]
-            counts, _ = np.histogram(valid_dists, bins=bin_edges)
-        else:
-            # Original nested loop
-            for i in range(n_sites - 1):
-                for j in range(i + 1, n_sites):
-                    dist = self.lattice.minimum_image_distance(
-                        all_coords[i], all_coords[j]
-                    )
-                    if 0 < dist <= r_max:
-                        bin_idx = int(dist / dr)
-                        if bin_idx < n_bins:
-                            counts[bin_idx] += 1
+
+        # Vectorized calculation using pairwise_distances_pbc
+        dists_matrix = self.lattice.pairwise_distances_pbc(all_coords)
+        mask = np.triu(np.ones(dists_matrix.shape, dtype=bool), k=1)
+        dists = dists_matrix[mask]
+        valid_dists = dists[(dists > 0) & (dists <= r_max)]
+        counts, _ = np.histogram(valid_dists, bins=bin_edges)
+
         # Normalize: 2 * counts / n_sites (factor 2 for unordered pairs)
         g_ref = 2.0 * counts / n_sites
         return r_bins, g_ref
-        
-    def get_rdf(self, r_max=None, dr=0.1, g_ref=None, vectorized=True):
+
+    def get_rdf(self, r_max=None, dr=0.1, g_ref=None):
         """
         Calculate radial distribution function averaged over trajectory.
         
@@ -451,8 +257,6 @@ class Trajectory:
         g_ref : ndarray, optional
             Reference RDF for normalization (from full lattice at coverage=1).
             If provided, normalizes by number of neighbors in each shell.
-        vectorized : bool, default True
-            Use vectorized distance calculations for better performance
             
         Returns
         -------
@@ -467,6 +271,7 @@ class Trajectory:
         Normalization follows zacros_functions.py: divides counts by g_ref 
         (number of neighbors in each shell) and by coverage.
         """
+
         if r_max is None:
             # Default: half the minimum cell dimension
             v1 = self.lattice.cell_vectors[0]
@@ -495,27 +300,15 @@ class Trajectory:
             
             counts = np.zeros(n_bins, dtype=int)
             
-            if vectorized:
-                # Vectorized distance calculation (much faster for large n_occupied)
-                distances = self.lattice.pairwise_distances_pbc(occupied_coords)
-                # Get upper triangle (no diagonal, no double counting)
-                mask = np.triu(np.ones(distances.shape, dtype=bool), k=1)
-                valid_dists = distances[mask]
-                valid_dists = valid_dists[(valid_dists > 0) & (valid_dists <= r_max)]
-                
-                # Histogram
-                counts, _ = np.histogram(valid_dists, bins=bin_edges)
-            else:
-                # nested loop implementation
-                for i in range(n_occupied - 1):
-                    for j in range(i + 1, n_occupied):
-                        dist = self.lattice.minimum_image_distance(
-                            occupied_coords[i], occupied_coords[j]
-                        )
-                        if 0 < dist <= r_max:
-                            bin_idx = int(dist / dr)
-                            if bin_idx < n_bins:
-                                counts[bin_idx] += 1
+            # Vectorized distance calculation (much faster for large n_occupied)
+            distances = self.lattice.pairwise_distances_pbc(occupied_coords)
+            # Get upper triangle (no diagonal, no double counting)
+            mask = np.triu(np.ones(distances.shape, dtype=bool), k=1)
+            valid_dists = distances[mask]
+            valid_dists = valid_dists[(valid_dists > 0) & (valid_dists <= r_max)]
+            
+            # Histogram
+            counts, _ = np.histogram(valid_dists, bins=bin_edges)
             
             # Normalize by g_ref if provided (number of neighbors in each shell)
             if g_ref is not None:

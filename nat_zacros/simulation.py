@@ -252,12 +252,9 @@ class Simulation:
             return []
         if workers is None:
             workers = mp.cpu_count()
-        print(f"Loading {len(self.traj_dirs)} trajectories in parallel using {workers} workers...")
 
         with ProcessPoolExecutor(max_workers=workers) as executor:
             trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs))
-
-        print(f"Successfully loaded {len(trajs)} trajectories")
 
         return trajs
 
