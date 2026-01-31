@@ -2,10 +2,16 @@
 Module: nat_zacros
 ==================
 
-This module provides classes for working with Zacros simulations:
+This module provides a heiracrhical set of classes for working with Zacros simulations:
 - `lattice`: FCC(111) surface lattice
 - `state`: Adsorbate configuration on the lattice
 - `trajectory`: Sequence of states over time
+- `simulation`: Single Zacros simulation run
+- `simulation_set`: Collection of multiple simulations
+
+Support is provided for loading and parsing Zacros output files, analyzing trajectories, and computing properties 
+such as radial distribution functions (RDFs), cluster size distrbutions, and a metric of the accessibility of adsorbates 
+inside clusters.
 """
 
 try:
@@ -19,55 +25,29 @@ except ImportError:
 
 
 """
-Performance Optimization Guide
+Performance Optimization
 -------------------------------
-This module includes several performance optimizations for RDF and trajectory analysis.
-Understanding when to use each approach is critical for optimal performance.
-
-**Key Optimizations (Recommended for all use cases):**
-
-1.  **Vectorized Distance Calculations** (50-100x speedup)
-    - Automatically enabled by default in trajectory.get_rdf(vectorized=True)
-    - Uses NumPy broadcasting to compute all pairwise distances at once
-    - Replaces nested Python loops with compiled NumPy operations
-
-2.  **Parallel Loading** (5-10x speedup)
+1.  **Parallel Loading** (5-10x speedup)
     - Use load_trajectories_parallel() for loading multiple trajectories
     - Each trajectory reads its own file → good I/O parallelism
    
-3.  **Binary Caching with pickle** (100x speedup for repeated analysis)
-    - Save parsed trajectories to pickle files after first load
-    - Subsequent loads read binary instead of parsing text (0.5s vs 60s) 
-      
-    - Example usage:
-        cache_file = 'trajectories_eq.pkl'
-        if not Path(cache_file).exists():
-            trajs = [load and parse trajectories]
-            with open(cache_file, 'wb') as f:
-                pickle.dump(trajs, f)
-        else:
-            with open(cache_file, 'rb') as f:
-                trajs = pickle.load(f)
+2.  **Binary Caching ** 
+    - Save parsed trajectories to cache files after first load
+    - Subsequent loads read binary instead of parsing text 
+    - (0.xx s vs yys for 10 trajectories with 200 states each) 
 
-    - dja comment 2025-12-19: 
-        Timing needs to be rechecked. It is based on timing
-        without parallelization of loading. 
-        With vectorized distance calcs and parallel loading
-        the time for loading + RDF calculation is now only ~2s
-        ---------------------------------------------
-        CONSIDER REMOVING CACHING (for simplicity).
-        ---------------------------------------------
+3.  **Vectorized Distance Calculations** (50-100x speedup)
+    - Uses NumPy broadcasting to compute all pairwise distances at once
+    - Replaces nested Python loops with compiled NumPy operations
 
-4.  **Parallel RDF Computation** - compute_rdf_parallel(), compute_rdf_parallel_states()
-    
+4.  **Parallel RDF Computation** 
     - Parallelization of Computations was tried and not found effective for our current use case.
     - With vectorization, RDF computation is very fast (~2s for 10 trajectories)
     - Parallelization overhead (process spawn, pickle, IPC) is ~2-4 seconds
-    - Therefore parallelization will only be beneficial when computation time >> 20-30 seconds
+    - Therefore parallelization will only be beneficial when computation time >> 10 seconds
     - Use cases where there may be benefit:
         * compute_rdf_parallel(): >50 trajectories, or very long trajectories
         * compute_rdf_parallel_states(): >100 trajectories with many states each
-
     - For typical use (10-20 trajectories): sequential computation is FASTER
 
 -------------------------------------------------------------------
@@ -75,7 +55,7 @@ Understanding when to use each approach is critical for optimal performance.
 -------------------------------------------------------------------
 TODO: recheck and revise these benchmarks and computer system and problem size parameters
 Performance Benchmark (typical system: 10 trajectories, ~100 states each, 14 cores):
-    - Sequential loading: 64s
+    - Sequential loading: ??? 64s
     - Parallel loading: 6-10s
     - RDF computation (sequential, vectorized): 2s
     - RDF computation (parallel): 3-5s (slower due to overhead!)

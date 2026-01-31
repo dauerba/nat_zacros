@@ -1,0 +1,11 @@
+# Enforce LF line endings and sensible defaults across platforms
+* text=auto eol=lf
+
+# Ensure Python files use LF
+*.py text eol=lf
+
+# Jupyter notebooks are binary
+*.ipynb binary
+
+# Shell scripts keep LF
+*.sh text eol=lf
