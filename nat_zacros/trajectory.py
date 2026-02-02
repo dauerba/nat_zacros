@@ -37,8 +37,6 @@ class Trajectory:
         Get energy as function of time
     estimate_equilibration(fraction=0.5)
         Estimate equilibration index
-    load_equilibrated_states(fraction=0.5)
-        Reload only equilibrated portion with full state data
     get_accessibility_histogram()
         Calculate histogram of site accessibility
     get_cluster_distribution(nn_cutoff)

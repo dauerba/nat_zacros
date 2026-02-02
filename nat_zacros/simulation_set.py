@@ -1,10 +1,9 @@
 """
 SimulationSet class for managing Zacros simulation sets
-We refer to simulations as a set of simulation runs when they share the same log file.
-We refer to simulations as a run when they share the same run folder.
+We refer to calculations as a set when they share the same log file.
+We refer to calculations as a simulation when they share the same simulation folder.
 
-This module provides a high-level interface for loading, caching, and analyzing
-collections of runs from a Zacros simulation set.
+This module provides a high-level interface for loading, caching, and analyzing a Zacros simulation set.
 """
 
 import json
@@ -16,6 +15,7 @@ from lmfit import Model
 import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+import tarfile
 from .lattice import Lattice
 from .trajectory import Trajectory
 from .simulation import Simulation
@@ -23,7 +23,7 @@ from .simulation import Simulation
 
 class SimulationSet:
     """
-    Manages a Zacros simulation set with multiple runs.
+    Manages a Zacros simulation set.
     
     This class provides a high-level interface for:
     - Metadata extraction from jobs.log
@@ -31,8 +31,10 @@ class SimulationSet:
     Attributes
     ----------
 
+    data_path  : Path or str
+        Directory containing the log_file, simset_dir, and results_dir
     fractions_eq : dict
-        Dictionary mapping run numbers to equilibrium fractions.
+        Dictionary mapping simulation numbers to equilibrium fractions.
     log_file : str  
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
@@ -41,12 +43,10 @@ class SimulationSet:
         Whether to use parallel loading of simulations.
     results_dir : str
         subdirectory containing simulation results (default: 'results')
-    runs_dir : str
-        subdirectory containing simulation runs (default: 'jobs')
-    set_dir  : Path or str
-        Directory containing the log file, runs, and results)
+    simset_dir : str
+        subdirectory containing a simulation set (default: 'jobs')
     simulations : list of Simulation
-        List of loaded Simulation objects for each run in the set.
+        List of loaded Simulation objects in the set.
     use_cache : bool
         Whether caching is used when loading simulations.
     verbose : bool
@@ -58,57 +58,76 @@ class SimulationSet:
     >>> nzset = SimulationSet()
     """
 
-    def __init__(self, set_dir, log_file='jobs.log', results_dir='results', runs_dir='jobs'):
+    def __init__(self, data_path, log_file='jobs.log', results_dir='results', simset_dir='jobs'):
         """
         Initialize a SimulationSet.
         
         Parameters
         ----------
-        set_dir : Path
+        data_path : Path or str
             Path to simulation set directory (e.g., 'fn_3leed')
-            This directory should contain jobs.log and the runs subdirectory
+            This directory should contain jobs.log and the simulations subdirectory
         log_file : str, optional
             Name of the log file (default: 'jobs.log')
         results_dir : str, optional
             Name of the subdirectory for storing results (default: 'results')
-        runs_dir : str, optional
-            Name of the subdirectory containing simulation runs (default: 'jobs')
+        simset_dir : str, optional
+            Name of the subdirectory containing simulations (default: 'jobs')
         """
         
+        # Validate the simulation set directory exists
+        if not Path(data_path).exists():
+            raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
+
+        self.data_path          = Path(data_path)
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
         self.results_dir        = results_dir
-        self.runs_dir           = runs_dir
-        self.set_dir            = Path(set_dir)
+        self.simset_dir         = simset_dir
         self.verbose            = False             # default verbosity
         self.simulations        = []
-        
+
+        # Validate if simulation set directory exists
+        if not (self.data_path / self.simset_dir).exists():
+            # untar jobs directory
+            tgz_file = self.data_path / (self.simset_dir + '.tgz')
+            print(f"Extracting a simulation set from {tgz_file.as_posix()} ...")
+            try:
+                if not tgz_file.exists():
+                     # Try looking for .tar.gz if .tgz not found, or just fail
+                     pass
+                
+                with tarfile.open(tgz_file, "r:gz") as tar:
+                    tar.extractall(path=self.data_path)
+            except Exception as e:
+                print(f"Error extracting simulations: {e}")
+                print(f"Data for simulation set {self.simset_dir} is invalid.")
+                self.is_valid = False
+            else:
+                print(f"Extraction complete.")
+
+
 
         self._load_metadata()
         self.simulations        = []   # initialize simulations list
-        # Initialize equilibration fractions dictionary with default 1.0 for each run -- dja change 2026-01-22
-        # This avoids KeyError when code expects an entry per run unless user overrides.
-        self.fractions_eq       = {md['run_number']: None for md in getattr(self, 'metadata', [])}
-
-        # Validate the set directory exists
-        if not self.set_dir.exists():
-            raise FileNotFoundError(f"Set directory not found: {self.set_dir}")
+        # Initialize equilibration fractions dictionary with default None for each simulation
+        # This avoids KeyError when code expects an entry per simulation unless user overrides.
+        self.fractions_eq       = {md['simulation_number']: None for md in getattr(self, 'metadata', [])}
         
-
 
     def _load_metadata(self):
         """
         Load simulation metadata from log file.
         
         Parses the log file of simulation set to extract temperature, coverage, interactions,
-        and lattice dimensions for all runs.
+        and lattice dimensions for all simulations in the set.
         
         Raises
         ------
         FileNotFoundError
             If log file is not found in set directory
         """
-        lfile = Path(self.set_dir) / self.log_file
+        lfile = Path(self.data_path) / self.log_file
         
         # Parse log file
         try:
@@ -118,15 +137,15 @@ class SimulationSet:
 
         except FileNotFoundError:
             raise FileNotFoundError(
-                f"log file not found at: {self.set_dir}"
+                f"log file not found at: {self.data_path}"
             )
         
         # Extract metadata from log entry
-        # Format: list of [run_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
+        # Format: list of [sim_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
         self.metadata = []
         for entry in log_entries:
             self.metadata.append({
-                'run_number': entry[0],
+                'simulation_number': entry[0],
                 'job_name': entry[1],
                 'lattice_dimensions': entry[2],  # [nx, ny]
                 'n_cells': entry[2][0] * entry[2][1],
@@ -136,24 +155,24 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
-    def clear_cache(self, cache=None, runs=None, verbose=False):
+    def clear_cache(self, cache=None, simulations=None, verbose=False):
         """
-        Clear cached data for simulation runs in the set for the specified cache type.
+        Clear cached data for simulations in the set for the specified cache type.
         Parameters
         ----------
         cache : str or None, default None
             If str, clear cache of specified file format. If None, clear all cache types.
-        runs : list of int or None, default None
-            If list of int, clear cache only for specified run numbers. If None, clear for all runs.
+        simulations : list of int or None, default None
+            If list of int, clear cache only for specified simulation numbers. If None, clear for all simulation set.
         verbose : bool, default False
             If True, print detailed clearing information.
         
         """
        
-        md_to_clear = self.metadata if runs is None else [md for md in self.metadata if md['run_number'] in runs]
+        md_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
         for md in md_to_clear:
-            run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
-            sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
+            sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             sim.clear_cache(cache=cache, verbose=verbose)
 
 # Warning! Come back to this later
@@ -259,9 +278,9 @@ class SimulationSet:
             )
 
             if fit_params is None or fit_result is None:
-                print(f'Run #{sim.metadata["run_number"]}: FIT FAILED\n\n')
+                print(f'Simulation #{sim.metadata["simulation_number"]}: FIT FAILED\n\n')
 
-            self.fractions_eq[sim.metadata["run_number"]] = \
+            self.fractions_eq[sim.metadata["simulation_number"]] = \
                 (len(energies) - eq_idx) / len(energies)
             
             fit_results.append((eq_idx, fit_params, fit_result, exp_term))
@@ -352,9 +371,9 @@ class SimulationSet:
             times, energies, energies_std = sim.get_ensemble_energy_vs_time()
 
             try:
-                fraction_eq = self.fractions_eq[sim.metadata["run_number"]]
+                fraction_eq = self.fractions_eq[sim.metadata["simulation_number"]]
             except KeyError:
-                raise KeyError(f"Equilibration fraction for run {sim.metadata['run_number']} not found in fractions_eq dictionary.")
+                raise KeyError(f"Equilibration fraction for simulation {sim.metadata['simulation_number']} not found in fractions_eq dictionary.")
 
             # --- fit
             eq_idx, fit_params, fit_result, exp_terms = find_equilibrium_exp_decay(
@@ -366,41 +385,34 @@ class SimulationSet:
             )
 
             fit_results.append((eq_idx, fit_params, fit_result, exp_terms))
-            self.fractions_eq[sim.metadata["run_number"]] = \
+            self.fractions_eq[sim.metadata["simulation_number"]] = \
                 (len(energies) - eq_idx) / len(energies)
 
 
         return fit_results
 
 
-    def load(self, cache=None, workers=mp.cpu_count(), runs=None, verbose=False):
+    def load(self, cache=None, workers=mp.cpu_count(), simulations=None, verbose=False):
         """
-        Load data for simulation runs.
+        Load data for simulations in the set.
         
         Parameters
         ----------
         cache : str or None, default None
             If str, cache to a specified file format. If None, do not use caching.
+        simulations : list of int or None, default None
+            If list of int, load only specified simulation numbers. If None, load all simulations.
+        verbose : bool, default False
+            If True, print detailed loading information.
         workers : int, default mp.cpu_count()
             Number of worker processes to use for parallel loading.
             If None, load serially.
-        runs : list of int or None, default None
-            If list of int, load only specified run numbers. If None, load all runs.
-        verbose : bool, default False
-            If True, print detailed loading information.
-        runs : list of int or None, default None
-            If list of int, load only specified run numbers. If None, load all runs.
-        verbose : bool, default False
-            If True, print detailed loading information.
         """
         
-        if cache is not None and cache not in Simulation.extensions:
-            raise ValueError(f"Unsupported cache format: {cache}. Supported formats: {list(Simulation.extensions.keys())}")
-        
-        md_to_load = self.metadata if runs is None else [md for md in self.metadata if md['run_number'] in runs]
+        md_to_load = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
         for md in md_to_load:
-            run_folder = self.set_dir / self.runs_dir / f"{md['run_number']}"
-            sim = Simulation(run_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
+            sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             sim.load(cache=cache, workers=workers, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
 
@@ -435,9 +447,9 @@ class SimulationSet:
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = sim.get_ensemble_energy_vs_time()
             try:
-                fraction = self.fractions_eq[sim.metadata["run_number"]] if self.fractions_eq[sim.metadata["run_number"]] is not None else 1.0
+                fraction = self.fractions_eq[sim.metadata["simulation_number"]] if self.fractions_eq[sim.metadata["simulation_number"]] is not None else 1.0
             except KeyError:
-                raise KeyError(f"Equilibration fraction for run {sim.metadata['run_number']} not found in fractions_eq dictionary.")
+                raise KeyError(f"Equilibration fraction for simulation {sim.metadata['simulation_number']} not found in fractions_eq dictionary.")
 
             # Plot energy as function of time using subplots
             ax = axes[isim//ncols, isim%ncols]
@@ -453,7 +465,7 @@ class SimulationSet:
                 
             # Plot energy versus percent of total time on bottom axis; show time on top axis
             ax.grid()
-            ax.set_title(f'Run #{sim.metadata["run_number"]}' 
+            ax.set_title(f'Simulation #{sim.metadata["simulation_number"]}' 
                         fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$'
                         f' ({fraction*100:.0f}%)',
                         fontsize = title_fontsize)
@@ -509,7 +521,7 @@ class SimulationSet:
 
 
     def __len__(self):
-        """Return number of runs."""
+        """Return number of simulations."""
         return len(self.metadata)
 
 

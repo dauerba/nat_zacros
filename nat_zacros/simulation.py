@@ -1,13 +1,12 @@
 """
-Simulation class for managing Zacros simulation runs with multiple trajectories.
+Simulation class for managing Zacros simulation with multiple trajectories.
 
 This module provides a high-level interface for loading, caching, and analyzing
-collections of trajectories from a single Zacros simulation run.
+collections of trajectories from a single Zacros simulation.
 """
 
 import json
 import pickle
-import tarfile
 import numpy as np
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
@@ -15,18 +14,12 @@ from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
 
-# Cache file extensions dictionary
-extensions = {
-    'pickle': 'pkl',
-    'text': 'dat'
-}
-
 class Simulation:
     """
-    Manages a Zacros simulation run with multiple trajectories.
+    Manages a Zacros simulation with multiple trajectories.
     
     This class provides a high-level interface for:
-    - Loading multiple trajectories with equilibration cutoff
+    - Loading multiple trajectories
     - Automatic caching of parsed trajectories
     - Ensemble-averaged analysis (RDF, energy statistics)
     - Metadata extraction from jobs.log
@@ -34,14 +27,14 @@ class Simulation:
     Attributes
     ----------
     is_valid : bool
-        True if something wrong with run data (corrupted, missing etc.)
+        True if something wrong with simulation data (corrupted, missing etc.)
     lattice : Lattice
         Shared lattice object for all trajectories
     metadata : dict
         Simulation metadata (temperature, coverage, interactions, etc.)
     results_dir : Path
         Directory for storing cache and results files
-    run_dir : Path
+    simulation_dir : Path
         Directory containing trajectory folders (traj_1, traj_2, ...)
     trajectories : list of trajectory
         Loaded trajectory objects
@@ -51,21 +44,21 @@ class Simulation:
     Examples
     --------
     >>> # Typical workflow
-    >>> run = simulation('fn_3leed/jobs/1')
+    >>> run = Simulation('fn_3leed/jobs/1')
     >>> run.load()  # Uses cache if available
     >>> run.is_valid  # Check if run data is valid
     >>> r, g, g_std = run.get_ensemble_rdf(r_max=40.0, dr=0.1)
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
     """
 
-    def __init__(self, run_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
+    def __init__(self, simulation_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
         """
         Initialize a simulation.
         
         Parameters
         ----------
-        run_dir : str or Path
-            Path to simulation run directory (e.g., 'fn_3leed/jobs/1')
+        simulation_dir : str or Path
+            Path to simulation directory (e.g., 'fn_3leed/jobs/1')
             This directory should contain traj_1, traj_2, ... subdirectories
         metadata : dict, optional
             Pre-loaded metadata (if available)
@@ -74,38 +67,29 @@ class Simulation:
 
         """
 
-        self.is_valid = True  # Assume run is valid initially
-        self.run_dir = Path(run_dir)
-        
-        # Validate run directory exists
-        if not self.run_dir.exists():
-            # untar jobs directory
-            tgz_file = self.run_dir.parent / (self.run_dir.name + '.tgz')
-            print(f"Extracting trajectories from {tgz_file.as_posix()} ...")
-            try:
-                if not tgz_file.exists():
-                     # Try looking for .tar.gz if .tgz not found, or just fail
-                     pass
-                
-                with tarfile.open(tgz_file, "r:gz") as tar:
-                    tar.extractall(path=self.run_dir.parent)
-            except Exception as e:
-                print(f"Error extracting jobs: {e}")
-                print(f"Data for run {self.run_dir.name} is invalid.")
-                self.is_valid = False
-            else:
-                print(f"Extraction complete.")
+        # Cache file extensions dictionary
+        self._EXTENSIONS = {
+            'pickle': 'pkl'
+        }
 
+        self.is_valid = True  # Assume the simulation is valid initially
+        self.simulation_dir = Path(simulation_dir)
+        
+        # Validate simulation directory exists
+        if not self.simulation_dir.exists():
+            print(f"Simulation directory {self.simulation_dir} does not exist.")
+            self.is_valid = False
+            
         else:
         
             # Auto-detect trajectory directories
             self.traj_dirs = sorted([
-                d for d in self.run_dir.iterdir() 
+                d for d in self.simulation_dir.iterdir() 
                 if d.is_dir() and d.name.startswith('traj_')
             ])
         
             if len(self.traj_dirs) == 0:
-                print(f"No trajectory directories (traj_*) found in {self.run_dir}")
+                print(f"No trajectory directories (traj_*) found in {self.simulation_dir}")
                 self.is_valid = False
             
             else:
@@ -113,15 +97,15 @@ class Simulation:
                 # Create lattice from first trajectory
                 self.lattice = Lattice(self.traj_dirs[0])
                 if not self.lattice.is_defined:
-                    print(f"Cannot load lattice data for run {self.run_dir.name}")
+                    print(f"Cannot load lattice data for simulation {self.simulation_dir.name}")
                     self.is_valid = False
                 else:
                 
                     # Initialize trajectory list (filled by load)
                     self.trajectories = []
         
-                    # Set up results directory (../../results/ from run_dir)
-                    self.results_dir = self.run_dir.parent.parent / results_dirname
+                    # Set up results directory (../../results/ from simulation_dir)
+                    self.results_dir = self.simulation_dir.parent.parent / results_dirname
                     self.results_dir.mkdir(exist_ok=True)
         
                     # Load metadata from log file if not provided
@@ -143,14 +127,14 @@ class Simulation:
         """
 
         if cache is None:
-            formats_to_clear = Simulation.extensions.keys()
+            formats_to_clear = self._EXTENSIONS.keys()
         elif type(cache) is list:
             formats_to_clear = cache
         elif type(cache) is str:
             formats_to_clear = [cache]
 
         for format in formats_to_clear:
-            cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs.{Simulation.extensions[format]}"
+            cache_file = self.results_dir / f"{self.metadata['simulation_number']}_trajs.{self._EXTENSIONS[format]}"
             if cache_file.exists():
                 cache_file.unlink()
                 if verbose:
@@ -162,7 +146,7 @@ class Simulation:
         Load simulation metadata from log file.
         
         Parses the log file to extract temperature, coverage, interactions,
-        and lattice dimensions for this specific run.
+        and lattice dimensions for this specific simulation.
 
         Parameters
         ----------
@@ -174,41 +158,41 @@ class Simulation:
         FileNotFoundError
             If log file is not found in the parent directory
         ValueError
-            If run number is not found in log file
+            If simulation number is not found in log file
         """
-        jobs_log = self.run_dir.parent / log_file
+        jobs_log = self.simulation_dir.parent / log_file
         if not jobs_log.exists():
             print(f"log file {jobs_log} not found. Cannot load metadata.")
             self.is_valid = False
             return
         
-        # Extract run number from directory name (e.g., '1' from 'fn_3leed/jobs/1')
-        run_number = int(self.run_dir.name)
+        # Extract simulation number from directory name (e.g., '1' from 'fn_3leed/jobs/1')
+        simulation_number = int(self.simulation_dir.name)
         
         # Parse jobs.log
         with open(jobs_log, 'r') as f:
             header = f.readline().split()  # Read header line
             log_entries = [json.loads(line) for line in f if line.strip()]
         
-        # Find entry matching this run number
+        # Find entry matching this simulation number
         matching_entry = None
         for entry in log_entries:
-            if entry[0] == run_number:
+            if entry[0] == simulation_number:
                 matching_entry = entry
                 break
         
         if matching_entry is None:
             print(
-                f"Run number {run_number} not found in {jobs_log}\n"
-                f"Available run numbers: {[e[0] for e in log_entries]}"
+                f"Simulation number {simulation_number} not found in {jobs_log}\n"
+                f"Available simulation numbers: {[e[0] for e in log_entries]}"
             )
             self.is_valid = False
             return
 
         # Extract metadata from log entry
-        # Format: [run_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
+        # Format: [simulation_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
         self.metadata = {
-            'run_number': matching_entry[0],
+            'simulation_number': matching_entry[0],
             'job_name': matching_entry[1],
             'lattice_dimensions': matching_entry[2],  # [nx, ny]
             'n_cells': matching_entry[2][0] * matching_entry[2][1],
@@ -276,7 +260,9 @@ class Simulation:
 
         # Determine cache file path and extension
         if cache is not None:
-            cache_file = self.results_dir / f"{self.metadata['run_number']}_trajs.{Simulation.extensions[cache]}"
+            if cache not in self._EXTENSIONS:
+                raise ValueError(f"Unsupported cache format: {cache}. Supported formats: {list(self._EXTENSIONS.keys())}")
+            cache_file = self.results_dir / f"{self.metadata['simulation_number']}_trajs.{self._EXTENSIONS[cache]}"
 
             # Try loading from cache
             if cache_file.exists():
@@ -494,7 +480,7 @@ class Simulation:
             traj_info = f", {len(self.traj_dirs)} trajectories (not loaded)"
         
         return (
-            f"simulation(run={self.metadata['run_number']}, "
+            f"simulation(sim={self.metadata['simulation_number']}, "
             f"T={self.metadata['temperature']}K, "
             f"θ={self.metadata['coverage']:.3f} "
         )
