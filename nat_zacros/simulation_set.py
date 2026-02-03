@@ -182,7 +182,7 @@ class SimulationSet:
         
         """
 
-        # dja change 2026-01-27 add self.set_dir prefix to gref_file path
+        # dja change 2026-01-27 add self.simset_dir prefix to gref_file path
         # gref_file =                    self.results_dir / 'gref.pkl'
         gref_file = self.set_dir / self.results_dir / 'gref.pkl'
 
@@ -348,7 +348,7 @@ class SimulationSet:
                 exp_term_2 = a2_fit * np.exp(-times / tau2_fit)
                 exp_terms = exp_term_1 + exp_term_2
 
-                # Use threshold relative to last energy point, not fitted amplitude
+                # Use threshold relative to average of the last 10 energy point
                 threshold = threshold_fraction * np.average(energies[-10:-1])
                 below_threshold = exp_terms < threshold
 
@@ -435,12 +435,12 @@ class SimulationSet:
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
         # ====================================================================================
 
-        fig_title = f'Ensemble averaged energy vs time -- {self.set_dir.parts[-1]}'
+        fig_title = f'Ensemble averaged energy vs time -- {self.data_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
         if not self.simulations:
             print("Loading energy data automatically...")
-            self.load(energy_only=True, parallel=False, use_cache=True, verbose=self.verbose)
+            self.load(cache='pickle', verbose=self.verbose)
 
         for isim, sim in enumerate(self.simulations):
 

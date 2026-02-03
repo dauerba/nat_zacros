@@ -271,8 +271,8 @@ class Simulation:
                 if cache=='pickle':
                     with open(cache_file, 'rb') as f:
                         self.trajectories = pickle.load(f)
- 
-                if verbose: print(f"Loaded {len(self.trajectories)} cached trajectories")
+                # too verbose, drop printing of loaded info
+                # if verbose: print(f"Loaded {len(self.trajectories)} cached trajectories")
                 return
 
         # Load trajectories from files
