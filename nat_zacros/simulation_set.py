@@ -33,6 +33,9 @@ class SimulationSet:
 
     data_path  : Path or str
         Directory containing the log_file, simset_dir, and results_dir
+    en_file_sfx : str
+        Suffix for energy data files (default: 'energy.dat').
+        If None, energy data files are not created.
     fractions_eq : dict
         Dictionary mapping simulation numbers to equilibrium fractions.
     log_file : str  
@@ -58,7 +61,8 @@ class SimulationSet:
     >>> nzset = SimulationSet()
     """
 
-    def __init__(self, data_path, log_file='jobs.log', results_dir='results', simset_dir='jobs'):
+    def __init__(self, data_path, log_file='jobs.log', results_dir='results', simset_dir='jobs', 
+                 en_file_sfx='energy.dat'):
         """
         Initialize a SimulationSet.
         
@@ -80,6 +84,7 @@ class SimulationSet:
             raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
 
         self.data_path          = Path(data_path)
+        self.en_file_sfx        = en_file_sfx
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
         self.results_dir        = results_dir
@@ -193,103 +198,32 @@ class SimulationSet:
         else:
             print(f"No g_ref cache to clear")
     
-
-# Warning! Come back to this later
-    def find_equilibrium_fraction_fit1(self, threshold=0.01, min_equilibrium_points=10):
+              
+    def find_equilibrium_fraction_fit(self, energies_vs_time, threshold=0.01, min_equilibrium_points=10, 
+                                       a0_fixed=True, a0_guess_points=10):
         """
-        Determine equilibrium points for all simulations in the set by fitting an exponential decay model.  
+        Find equilibrium fraction by fitting ensemble-averaged energy vs time to an biexponential decay model.
         Parameters
         ----------
-        threshold : float, optional
-            Relative threshold for determining equilibrium (default: 0.01)
-        min_equilibrium_points : int, optional
-            Minimum number of consecutive points below threshold to confirm equilibrium (default: 10)       
+        energies_vs_time : list of tuples
+            Each tuple contains (times, energies, energies_std) for a simulation.
+        threshold : float, default 0.01
+            Threshold fraction of the asymptotic value (a0) of the fitting function to define equilibrium.
+        min_equilibrium_points : int, default 10
+            Minimum number of consecutive points below threshold to define equilibrium.
+        a0_fixed : bool, default True
+            If True, fix a0 to average of last a0_guess_points during fitting.
+        a0_guess_points : int, default 10
+            Number of points from end to average for a0 guess.
         Returns
         -------
         fit_results : list of tuples
-            Each tuple contains (equilibrium_index, fit_parameters, fit_result, exp_term) for each simulation.
-            - equilibrium_index : int or None
-                Index of first equilibrium point, or None if not found.
-            - fit_parameters : tuple or None
-                Fitted parameters (A, tau, C) of the exponential decay model, or None if fit failed.
-            - fit_result : lmfit ModelResult or None
-                Full fit result object from lmfit, or None if fit failed.
-            - exp_term : np.ndarray or None
-                Exponential term values over time from the fitted model, or None if fit failed.
+            Each tuple contains (eq_idx, fit_params, fit_result, exp_terms) for a simulation.
+            eq_idx : index of first equilibrium point or None if not found
+            fit_params : fitted parameters (a0, a1, a2, tau1, tau2) or None if fit failed
+            fit_result : lmfit ModelResult object or None if fit failed
+            exp_terms : fitted exponential terms over time or None if fit failed
         """
-
-        def exp_decay_model(t, A, tau, C):
-            """Exponential decay model: E(t) = A*exp(-t/tau) + C"""
-            return A * np.exp(-t / tau) + C
-
-        def find_equilibrium_exp_decay(times, energies, threshold, min_eq_points):
-            """Find equilibrium by fitting exponential decay model."""
-            if len(times) < min_eq_points:
-                return None, None, None, None
-            
-            # Initial parameter guesses
-            C_guess = energies[-1]  # Equilibrium value ~ final energy
-            A_guess = energies[0] - C_guess  # Initial amplitude
-            tau_guess = times[-1] / 3  # Rough time constant
-            
-            # Create lmfit Model
-            model = Model(exp_decay_model)
-            
-            # Set up parameters with constraints
-            params = model.make_params(A=A_guess, tau=tau_guess, C=C_guess)
-            params['A'].min = 0  # A must be positive
-            params['tau'].min = 0  # tau must be positive
-            
-            try:
-                # Fit the model
-                result = model.fit(energies, params, t=times)
-                
-                # Extract fitted parameters
-                A_fit = result.params['A'].value
-                tau_fit = result.params['tau'].value
-                C_fit = result.params['C'].value
-                
-                # Calculate exponential term over time
-                exp_term = A_fit * np.exp(-times / tau_fit)
-                
-                below_threshold = exp_term < threshold*C_fit
-                
-                # Find first sustained occurrence
-                for i in range(len(below_threshold) - min_eq_points):
-                    if np.all(below_threshold[i:i+min_eq_points]):
-                        return i, (A_fit, tau_fit, C_fit), result, exp_term
-                
-                # If threshold never reached, no equilibrium detected
-                return None , (A_fit, tau_fit, C_fit), result, exp_term
-                
-            except Exception as e:
-                print(f"Fit failed: {e}")
-                return None, None, None, None
-
-        fit_results = []
-        for sim in self.simulations:
-
-            # Get ensemble-averaged energy vs time and fraction for this simulation
-            times, energies, energies_std = sim.get_ensemble_energy_vs_time()
-            
-            # Find equilibrium point
-            eq_idx, fit_params, fit_result, exp_term = find_equilibrium_exp_decay(
-                times, energies, threshold, min_equilibrium_points
-            )
-
-            if fit_params is None or fit_result is None:
-                print(f'Simulation #{sim.metadata["simulation_number"]}: FIT FAILED\n\n')
-
-            self.fractions_eq[sim.metadata["simulation_number"]] = \
-                (len(energies) - eq_idx) / len(energies)
-            
-            fit_results.append((eq_idx, fit_params, fit_result, exp_term))
-
-        return fit_results
-            
-# Warning! Come back to this later
-    def find_equilibrium_fraction_fit2(self, threshold=0.01, min_equilibrium_points=10, 
-                                       a0_fixed=True, a0_guess_points=10):
 
         def exp_decay_model(t, a0, a1, a2, tau1, tau2):
             """
@@ -368,12 +302,7 @@ class SimulationSet:
         for isim, sim in enumerate(self.simulations):
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
-            times, energies, energies_std = sim.get_ensemble_energy_vs_time()
-
-            try:
-                fraction_eq = self.fractions_eq[sim.metadata["simulation_number"]]
-            except KeyError:
-                raise KeyError(f"Equilibration fraction for simulation {sim.metadata['simulation_number']} not found in fractions_eq dictionary.")
+            times, energies, energies_std = energies_vs_time[isim]
 
             # --- fit
             eq_idx, fit_params, fit_result, exp_terms = find_equilibrium_exp_decay(
@@ -384,12 +313,67 @@ class SimulationSet:
                 a0_guess_points=a0_guess_points
             )
 
+            if eq_idx is None:
+                self.fractions_eq[sim.metadata["simulation_number"]] = 0.0
+            else:
+                self.fractions_eq[sim.metadata["simulation_number"]] = \
+                    (len(energies) - eq_idx) / len(energies)
+                
             fit_results.append((eq_idx, fit_params, fit_result, exp_terms))
-            self.fractions_eq[sim.metadata["simulation_number"]] = \
-                (len(energies) - eq_idx) / len(energies)
 
 
         return fit_results
+
+
+    def get_ensemble_energy_vs_time(self, n_bins=100):
+
+        """
+        Get ensemble-averaged energy vs time for all simulations in the set.
+        Parameters
+        ----------
+        n_bins : int, default 100
+            Number of time bins for averaging.
+
+        Returns
+        -------
+        results : list of tuples
+            Each tuple contains (times, energies, energies_std) for a simulation.
+        """
+
+        if n_bins <= 0:
+            raise ValueError("n_bins must be a positive integer.")
+        
+        results = []
+        for sim in self.simulations:
+
+            n_bins_file = 0
+            if self.en_file_sfx is not None:
+                en_file = Path(self.data_path) / self.results_dir / \
+                            f"{sim.metadata['simulation_number']}_{self.en_file_sfx}"
+            else:
+                en_file = None
+
+            try:
+                # Load energy vs time data from file
+                times, energies, energies_std = np.loadtxt(en_file, skiprows=1, unpack=True)
+                n_bins_file = len(times)
+            except: 
+                pass
+                
+            if n_bins != n_bins_file:
+                # Recalculate averages
+                times, energies, energies_std = sim.get_ensemble_energy_vs_time(n_bins=n_bins)
+                # Save energy vs time data to file
+                try:
+                    np.savetxt(en_file, 
+                        np.column_stack((times, energies, energies_std)), 
+                        header='Time_s Energy_eV Energy_std_eV')
+                except:
+                    pass
+        
+            results.append((times, energies, energies_std))
+
+        return results
 
 
     def load(self, cache=None, workers=mp.cpu_count(), simulations=None, verbose=False):
@@ -416,38 +400,45 @@ class SimulationSet:
             sim.load(cache=cache, workers=workers, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
 
-
-# Warning! Come back to this later
-    def plot(self, ncols=3, figsize=(12,3), title_fontsize=10, suptitle_fontsize=16):
-        """Plot ensemble-averaged energy vs time for all simulations in the set."""
+    def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,3), title_fontsize=10, suptitle_fontsize=16):
+        """Plot ensemble-averaged energy vs time for the loaded simulations.
+        Parameters
+        ----------
+        energies_vs_time : list of tuples
+            Each tuple contains (times, energies, energies_std) for a simulation.
+        ncols : int, default 3
+            Number of columns in the subplot grid.
+        figsize : tuple, default (12, 3)
+            Figure size (width, height) in inches for each row.
+        title_fontsize : int, default 10
+            Font size for subplot titles.
+        suptitle_fontsize : int, default 16
+            Font size for the overall figure title.
+        Returns
+        -------
+        None
+        """
 
         # Set up subplots
 
-        # ====================================================================================
-        # ------dja change 2026-01-22: 
-        #    add squeeze=False to subplots to ensure 2D axes array even for single row/column 
-        #    scale figure height according to number of rows needed
-        #    consider further adjustements figsize parameter to better fit different numbers 
-        # ====================================================================================
-        
-        nrows = int(np.ceil(len(self)/ncols))
+        nrows = int(np.ceil(len(self.simulations)/ncols))
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
-        # ====================================================================================
 
         fig_title = f'Ensemble averaged energy vs time -- {self.data_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
         if not self.simulations:
-            print("Loading energy data automatically...")
-            self.load(cache='pickle', verbose=self.verbose)
-
+            print("No simulations loaded: Nothing to plot.")
+            return
+        
         for isim, sim in enumerate(self.simulations):
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
-            times, energies, energies_std = sim.get_ensemble_energy_vs_time()
+            times, energies, energies_std = energies_vs_time[isim]
+
             try:
-                fraction = self.fractions_eq[sim.metadata["simulation_number"]] if self.fractions_eq[sim.metadata["simulation_number"]] is not None else 1.0
+                fraction = self.fractions_eq[sim.metadata["simulation_number"]] if self.fractions_eq[sim.metadata["simulation_number"]] is not None else 0.0
             except KeyError:
                 raise KeyError(f"Equilibration fraction for simulation {sim.metadata['simulation_number']} not found in fractions_eq dictionary.")
 
@@ -465,7 +456,7 @@ class SimulationSet:
                 
             # Plot energy versus percent of total time on bottom axis; show time on top axis
             ax.grid()
-            ax.set_title(f'Simulation #{sim.metadata["simulation_number"]}' 
+            ax.set_title(f'Simulation #{sim.metadata["simulation_number"]}:' 
                         fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$'
                         f' ({fraction*100:.0f}%)',
                         fontsize = title_fontsize)
@@ -489,7 +480,7 @@ class SimulationSet:
                 ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
 
                 # Shade equilibrium region in percent coordinates
-                eq_idx = int(np.round((1 - fraction) * len(times)))
+                eq_idx = int(np.round((1 - fraction) * (len(times) - 1)))
                 left_p = (times_arr[eq_idx] / max_time) * 100.0
                 ax.axvspan(left_p, 100.0, alpha=0.2, color='green') 
             else:
@@ -499,7 +490,7 @@ class SimulationSet:
                 ax.set_ylabel('Energy (eV)')
                 # Shade equilibrium region if possible
                 if len(times_plot) > 0:
-                    eq_idx = int(np.round((1 - fraction) * len(times)))
+                    eq_idx = int(np.round((1 - fraction) * (len(times) - 1)))
                     ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
                 else:
                     eq_idx = 0  # no shading possible

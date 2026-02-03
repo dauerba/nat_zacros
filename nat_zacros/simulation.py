@@ -370,7 +370,6 @@ class Simulation:
         print(f"RDF computation complete")
         return r, g_avg, g_std
     
-# Warning! Come back to this later
     def get_ensemble_energy_vs_time(self, n_bins=100):
         """
         Compute ensemble-averaged energy as function of time.
