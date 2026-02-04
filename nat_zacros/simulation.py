@@ -304,8 +304,58 @@ class Simulation:
             size_mb = cache_file.stat().st_size / 1024**2
             if verbose: print(f"Cache saved: {size_mb:.1f} MB")
 
-# Warning! Come back to this later
-    def get_ensemble_rdf(self, r_max=40.0, dr=0.1):
+
+    def get_g_ref(self, r_max=None, dr=0.1):
+        """
+        Calculate reference RDF for full lattice (all sites, coverage=1).
+        
+        This computes the number of neighbors in each distance shell,
+        used to normalize the RDF such that g(r)=1 for ideal gas.
+        
+        Parameters
+        ----------
+        r_max : float, optional
+            Maximum distance for RDF
+        dr : float, default 0.1
+            Bin width in Angstroms
+            
+        Returns
+        -------
+        r_bins : ndarray
+            Bin centers
+        g_ref : ndarray
+            Number of neighbors in each shell (integer counts)
+        """
+        if r_max is None:
+            v1 = self.lattice.cell_vectors[0]
+            v2 = self.lattice.cell_vectors[1]
+            l1 = np.linalg.norm(v1)
+            l2 = np.linalg.norm(v2)
+            l3 = np.linalg.norm(v1 + v2)
+            r_max = min(l1, l2, l3) / 2.0
+        
+        # Initialize histogram
+        n_bins = int(np.ceil(r_max / dr))
+        bin_edges = np.linspace(0.0, r_max, n_bins + 1)
+        r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        # Get all lattice site coordinates
+        all_coords = self.lattice.coordinates
+        n_sites = len(all_coords)
+        counts = np.zeros(n_bins, dtype=int)
+
+        # Vectorized calculation using pairwise_distances_pbc
+        dists_matrix = self.lattice.pairwise_distances_pbc(all_coords)
+        mask = np.triu(np.ones(dists_matrix.shape, dtype=bool), k=1)
+        dists = dists_matrix[mask]
+        valid_dists = dists[(dists > 0) & (dists <= r_max)]
+        counts, _ = np.histogram(valid_dists, bins=bin_edges)
+
+        # Normalize: 2 * counts / n_sites (factor 2 for unordered pairs)
+        g_ref = 2.0 * counts / n_sites
+        return r_bins, g_ref
+
+
+    def get_ensemble_rdf(self, r_max=40.0, dr=0.1, normalize=True):
         """
         Compute ensemble-averaged radial distribution function.
         
@@ -317,58 +367,49 @@ class Simulation:
             Maximum distance for RDF (Angstroms)
         dr : float, default 0.1
             Bin width for RDF (Angstroms)
-        
+        normalize : bool, default True
+            If True, normalize RDF using reference g_ref        
         Returns
         -------
         r : ndarray
-            Distance values (Angstroms)
+            Bin centers (Angstroms)
         g_avg : ndarray
             Ensemble-averaged RDF
         g_std : ndarray
             Standard deviation of RDF across trajectories
-        
-        Notes
-        -----
-        g_ref is cached at the interaction level (results/gref.pkl) since it
-        depends only on lattice geometry, not on temperature or coverage.
+        g_ref : ndarray, optional
+            Reference RDF (only returned if normalize=True)
         
         Raises
         ------
         RuntimeError
             If trajectories have not been loaded yet
         """
+
         if len(self.trajectories) == 0:
             raise RuntimeError(
                 "No trajectories loaded. Call load_trajectories() first."
             )
         
-        # Check for cached g_ref
-        gref_cache_file = self.results_dir / 'gref.pkl'
-        
-        if gref_cache_file.exists():
-            print(f"Loading g_ref from cache: {gref_cache_file.name}")
-            with open(gref_cache_file, 'rb') as f:
-                r_ref, g_ref = pickle.load(f)
+        if normalize:
+            r_ref, g_ref = self.get_g_ref(r_max=r_max, dr=dr)
         else:
-            print(f"Computing g_ref (one-time calculation)...")
-            r_ref, g_ref = self.trajectories[0].get_g_ref(r_max=r_max, dr=dr)
-            print(f"Saving g_ref to cache: {gref_cache_file.name}")
-            with open(gref_cache_file, 'wb') as f:
-                pickle.dump((r_ref, g_ref), f)
+            r_ref, g_ref = None, None
         
         # Compute RDF for each trajectory
-        print(f"Computing RDF for {len(self.trajectories)} trajectories...")
         rdfs = []
         for i, traj in enumerate(self.trajectories):
-            r, g = traj.get_rdf(r_max=r_max, dr=dr, g_ref=g_ref, vectorized=True)
+            r, g = traj.get_rdf(r_max=r_max, dr=dr, g_ref=g_ref)
             rdfs.append(g)
         
         # Ensemble average
         g_avg = np.mean(rdfs, axis=0)
         g_std = np.std(rdfs, axis=0)
-        
-        print(f"RDF computation complete")
-        return r, g_avg, g_std
+
+        if normalize:
+            return r, g_avg, g_std, g_ref
+        else:
+            return r, g_avg, g_std
     
     def get_ensemble_energy_vs_time(self, n_bins=100):
         """

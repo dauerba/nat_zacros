@@ -62,7 +62,7 @@ class SimulationSet:
     """
 
     def __init__(self, data_path, log_file='jobs.log', results_dir='results', simset_dir='jobs', 
-                 en_file_sfx='energy.dat'):
+                 en_file_sfx='energy.dat', rdf_file_sfx='rdf.dat'):
         """
         Initialize a SimulationSet.
         
@@ -77,6 +77,12 @@ class SimulationSet:
             Name of the subdirectory for storing results (default: 'results')
         simset_dir : str, optional
             Name of the subdirectory containing simulations (default: 'jobs')
+        en_file_sfx : str, optional
+            Suffix for energy data files (default: 'energy.dat').
+            If None, energy data files are not created.
+        rdf_file_sfx : str, optional
+            Suffix for RDF data files (default: 'rdf.dat').
+            If None, RDF data files are not created.
         """
         
         # Validate the simulation set directory exists
@@ -87,6 +93,7 @@ class SimulationSet:
         self.en_file_sfx        = en_file_sfx
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
+        self.rdf_file_sfx       = rdf_file_sfx
         self.results_dir        = results_dir
         self.simset_dir         = simset_dir
         self.verbose            = False             # default verbosity
@@ -179,6 +186,29 @@ class SimulationSet:
             sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
             sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             sim.clear_cache(cache=cache, verbose=verbose)
+
+
+    def clear_energy_cache(self, verbose=False):
+
+        """
+        Clear cached energy vs time data files for all simulations in the set.
+        Parameters
+        ----------
+        verbose : bool, default False
+            If True, print detailed clearing information.
+        
+        """
+       
+        for sim in self.simulations:
+
+            if self.en_file_sfx is not None:
+                en_file = Path(self.data_path) / self.results_dir / \
+                            f"{sim.metadata['simulation_number']}_{self.en_file_sfx}"
+
+                if en_file.exists():
+                    en_file.unlink()
+                    if verbose:
+                        print(f"Energy cache cleared: {en_file.name}")
 
 # Warning! Come back to this later
     def clear_rdf_normalization_cache(self):
@@ -376,6 +406,69 @@ class SimulationSet:
         return results
 
 
+    def get_ensemble_rdfs(self, r_max=40.0, dr=0.1, normalize=True):
+
+        """
+        Get ensemble-averaged RDF for all simulations in the set.
+        Parameters
+        ----------
+        r_max : float, default 40.0
+            Maximum distance for RDF (Angstroms)
+        dr : float, default 0.1
+            Bin width for RDF (Angstroms)
+        normalize : bool, default True
+            If True, normalize RDF using reference
+        Returns
+        -------
+        results : list of tuples
+            Each tuple contains (r, g_r, g_ref_r) for a simulation.
+        """
+
+        if r_max <= 0:
+            raise ValueError("r_max must be a positive number.")
+        if dr <= 0:
+            raise ValueError("dr must be a positive number.")
+        
+        results = []
+        for sim in self.simulations:
+
+           
+            if self.rdf_file_sfx is not None:
+                rdf_file   = Path(self.data_path) / self.results_dir / \
+                               f"{sim.metadata['simulation_number']}_{self.rdf_file_sfx}"
+            else:
+                rdf_file = None
+
+            r_max_file = 0
+            dr_file = 0
+            normalize_file = False
+            try:
+                # Load RDF data from file
+                data = np.loadtxt(rdf_file, skiprows=1, unpack=True)
+                r = data[0]
+                r_max_file = r.max()
+                dr_file = r[1] - r[0]
+                if len(data) == 4:
+                    normalize_file = True
+            except: 
+                pass
+                
+            if r_max != r_max_file or dr != dr_file or normalize != normalize_file:
+                # Recalculate reference and ensemble RDFs
+                data = sim.get_ensemble_rdf(r_max=r_max, dr=dr, normalize=normalize)
+                # Save RDF data to file
+                try:
+                    np.savetxt(rdf_file, 
+                        np.column_stack(data), 
+                        header='r_Angstrom g_r g_std g_ref_r' if normalize else 'r_Angstrom g_r g_std')
+                except: 
+                    pass
+                
+            results.append(data)
+
+        return results
+
+
     def load(self, cache=None, workers=mp.cpu_count(), simulations=None, verbose=False):
         """
         Load data for simulations in the set.
@@ -400,7 +493,7 @@ class SimulationSet:
             sim.load(cache=cache, workers=workers, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
 
-    def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,3), title_fontsize=10, suptitle_fontsize=16):
+    def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
         """Plot ensemble-averaged energy vs time for the loaded simulations.
         Parameters
         ----------
@@ -414,6 +507,8 @@ class SimulationSet:
             Font size for subplot titles.
         suptitle_fontsize : int, default 16
             Font size for the overall figure title.
+        show_eq : bool, default True
+            If True, show equilibration fraction on each subplot.
         Returns
         -------
         None
@@ -437,10 +532,13 @@ class SimulationSet:
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = energies_vs_time[isim]
 
-            try:
-                fraction = self.fractions_eq[sim.metadata["simulation_number"]] if self.fractions_eq[sim.metadata["simulation_number"]] is not None else 0.0
-            except KeyError:
-                raise KeyError(f"Equilibration fraction for simulation {sim.metadata['simulation_number']} not found in fractions_eq dictionary.")
+            if show_eq:
+                try:
+                    fraction = self.fractions_eq[sim.metadata["simulation_number"]] if self.fractions_eq[sim.metadata["simulation_number"]] is not None else 0.0
+                except KeyError:
+                    raise KeyError(f"Equilibration fraction for simulation {sim.metadata['simulation_number']} not found in fractions_eq dictionary.")
+            else:
+                fraction = 0.0
 
             # Plot energy as function of time using subplots
             ax = axes[isim//ncols, isim%ncols]
@@ -456,10 +554,11 @@ class SimulationSet:
                 
             # Plot energy versus percent of total time on bottom axis; show time on top axis
             ax.grid()
-            ax.set_title(f'Simulation #{sim.metadata["simulation_number"]}:' 
-                        fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$'
-                        f' ({fraction*100:.0f}%)',
-                        fontsize = title_fontsize)
+            title = f'Simulation #{sim.metadata["simulation_number"]}:' \
+                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+            if show_eq:
+                title += f' ({fraction*100:.0f}%)'
+            ax.set_title(title, fontsize = title_fontsize)
 
             if len(times_plot) > 0 and times_plot[-1] != 0:
                 # Use the actual maximum time (not the last element) in case times are unsorted
@@ -497,7 +596,7 @@ class SimulationSet:
 
             # Set y-axis limits based on equilibrium range (guard empty)
             if len(energies) > 0:
-                equilibrium_energies = energies[eq_idx:] if eq_idx < len(energies) else energies
+                equilibrium_energies = energies[eq_idx:] if eq_idx < len(energies) - 1 and show_eq else energies
                 if len(equilibrium_energies) > 0:
                     ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
 

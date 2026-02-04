@@ -193,55 +193,6 @@ class Trajectory:
     # RDF (Radial Distribution Function) Analysis Methods
     # ==========================================================================
 
-    def get_g_ref(self, r_max=None, dr=0.1):
-        """
-        Calculate reference RDF for full lattice (all sites, coverage=1).
-        
-        This computes the number of neighbors in each distance shell,
-        used to normalize the RDF such that g(r)=1 for ideal gas.
-        
-        Parameters
-        ----------
-        r_max : float, optional
-            Maximum distance for RDF
-        dr : float, default 0.1
-            Bin width in Angstroms
-            
-        Returns
-        -------
-        r_bins : ndarray
-            Bin centers
-        g_ref : ndarray
-            Number of neighbors in each shell (integer counts)
-        """
-        if r_max is None:
-            v1 = self.lattice.cell_vectors[0]
-            v2 = self.lattice.cell_vectors[1]
-            l1 = np.linalg.norm(v1)
-            l2 = np.linalg.norm(v2)
-            l3 = np.linalg.norm(v1 + v2)
-            r_max = min(l1, l2, l3) / 2.0
-        
-        # Initialize histogram
-        n_bins = int(np.ceil(r_max / dr))
-        bin_edges = np.linspace(0.0, r_max, n_bins + 1)
-        r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-        # Get all lattice site coordinates
-        all_coords = self.lattice.coordinates
-        n_sites = len(all_coords)
-        counts = np.zeros(n_bins, dtype=int)
-
-        # Vectorized calculation using pairwise_distances_pbc
-        dists_matrix = self.lattice.pairwise_distances_pbc(all_coords)
-        mask = np.triu(np.ones(dists_matrix.shape, dtype=bool), k=1)
-        dists = dists_matrix[mask]
-        valid_dists = dists[(dists > 0) & (dists <= r_max)]
-        counts, _ = np.histogram(valid_dists, bins=bin_edges)
-
-        # Normalize: 2 * counts / n_sites (factor 2 for unordered pairs)
-        g_ref = 2.0 * counts / n_sites
-        return r_bins, g_ref
-
     def get_rdf(self, r_max=None, dr=0.1, g_ref=None):
         """
         Calculate radial distribution function averaged over trajectory.
