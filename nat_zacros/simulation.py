@@ -355,7 +355,7 @@ class Simulation:
         return r_bins, g_ref
 
 
-    def get_ensemble_rdf(self, r_max=40.0, dr=0.1, normalize=True):
+    def get_ensemble_rdf(self, r_max=40.0, dr=0.1, fraction=1.0, normalize=True):
         """
         Compute ensemble-averaged radial distribution function.
         
@@ -367,6 +367,8 @@ class Simulation:
             Maximum distance for RDF (Angstroms)
         dr : float, default 0.1
             Bin width for RDF (Angstroms)
+        fraction : float, default 1.0
+            Fraction of trajectory data to use for RDF calculation (e.g., 0.5 for last half)
         normalize : bool, default True
             If True, normalize RDF using reference g_ref        
         Returns
@@ -399,7 +401,7 @@ class Simulation:
         # Compute RDF for each trajectory
         rdfs = []
         for i, traj in enumerate(self.trajectories):
-            r, g = traj.get_rdf(r_max=r_max, dr=dr, g_ref=g_ref)
+            r, g = traj.get_rdf(r_max=r_max, dr=dr, fraction=fraction, g_ref=g_ref)
             rdfs.append(g)
         
         # Ensemble average

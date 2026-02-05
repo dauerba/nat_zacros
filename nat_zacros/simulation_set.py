@@ -208,27 +208,31 @@ class SimulationSet:
                 if en_file.exists():
                     en_file.unlink()
                     if verbose:
-                        print(f"Energy cache cleared: {en_file.name}")
+                        print(f"Energy cache cleared for simulation #{sim.metadata['simulation_number']} ({en_file.name})")
 
-# Warning! Come back to this later
-    def clear_rdf_normalization_cache(self):
+
+    def clear_rdf_cache(self, verbose=False):
+
         """
-        Clear cached rdf normalization data.
+        Clear cached RDF data files for all simulations in the set.
+        Parameters
+        ----------
+        verbose : bool, default False
+            If True, print detailed clearing information.
         
         """
+       
+        for sim in self.simulations:
 
-        # dja change 2026-01-27 add self.simset_dir prefix to gref_file path
-        # gref_file =                    self.results_dir / 'gref.pkl'
-        gref_file = self.set_dir / self.results_dir / 'gref.pkl'
+            if self.rdf_file_sfx is not None:
+                rdf_file = Path(self.data_path) / self.results_dir / \
+                            f"{sim.metadata['simulation_number']}_{self.rdf_file_sfx}"
 
-        
-        if gref_file.exists():
-            gref_file.unlink()
-            print(f"Cleared g_ref cache: {gref_file.name}")
-        else:
-            print(f"No g_ref cache to clear")
-    
-              
+                if rdf_file.exists():
+                    rdf_file.unlink()
+                    if verbose:
+                        print(f"RDF cache cleared for simulation #{sim.metadata['simulation_number']} ({rdf_file.name})")
+
     def find_equilibrium_fraction_fit(self, energies_vs_time, threshold=0.01, min_equilibrium_points=10, 
                                        a0_fixed=True, a0_guess_points=10):
         """
@@ -406,7 +410,7 @@ class SimulationSet:
         return results
 
 
-    def get_ensemble_rdfs(self, r_max=40.0, dr=0.1, normalize=True):
+    def get_ensemble_rdfs(self, r_max=40.0, dr=0.1, normalize=True, recalculate=False, verbose=False):
 
         """
         Get ensemble-averaged RDF for all simulations in the set.
@@ -418,6 +422,12 @@ class SimulationSet:
             Bin width for RDF (Angstroms)
         normalize : bool, default True
             If True, normalize RDF using reference
+        recalculate : bool, default False
+            If True,  unconditionally recalculate and cache RDFs.
+            If False, use cached RDFs if they exist and match parameters.
+        verbose : bool, default False
+            If True, print detailed calculation information.
+
         Returns
         -------
         results : list of tuples
@@ -432,13 +442,25 @@ class SimulationSet:
         results = []
         for sim in self.simulations:
 
-           
             if self.rdf_file_sfx is not None:
                 rdf_file   = Path(self.data_path) / self.results_dir / \
                                f"{sim.metadata['simulation_number']}_{self.rdf_file_sfx}"
             else:
                 rdf_file = None
 
+            # Get equilibrium fraction for this simulation
+            fraction_eq = self.fractions_eq[sim.metadata["simulation_number"]]
+            # if not (or ill) specified, skip and clear cache if exists
+            if fraction_eq is None or fraction_eq <= 0.0 or fraction_eq > 1.0:
+                # Clean cache for invalid fraction
+                if rdf_file.exists():
+                    rdf_file.unlink()
+                    if verbose:
+                        print(f"RDF cache cleared for simulation #{sim.metadata['simulation_number']} ({rdf_file.name})")
+                # put placeholder None in results to maintain order
+                results.append(None)  
+                continue  
+           
             r_max_file = 0
             dr_file = 0
             normalize_file = False
@@ -446,16 +468,23 @@ class SimulationSet:
                 # Load RDF data from file
                 data = np.loadtxt(rdf_file, skiprows=1, unpack=True)
                 r = data[0]
-                r_max_file = r.max()
                 dr_file = r[1] - r[0]
+                r_max_file = r.max() + dr_file/2
                 if len(data) == 4:
                     normalize_file = True
             except: 
                 pass
-                
-            if r_max != r_max_file or dr != dr_file or normalize != normalize_file:
-                # Recalculate reference and ensemble RDFs
-                data = sim.get_ensemble_rdf(r_max=r_max, dr=dr, normalize=normalize)
+
+            if verbose:                
+                print(f"Calculating RDF for simulation #{sim.metadata['simulation_number']} with fraction {fraction_eq:.3f} ...")
+                print(f"Parameters:  r_max={r_max}, dr={dr}, normalize={normalize}")
+                print(f"Cached vals: r_max={r_max_file}, dr={dr_file}, normalize={normalize_file}")
+
+            if not np.isclose(r_max, r_max_file) or \
+                not np.isclose(dr, dr_file) or \
+                normalize != normalize_file or recalculate:
+                # Recalculate reference and ensemble RDFs for equilibrium fraction
+                data = sim.get_ensemble_rdf( r_max=r_max, dr=dr, fraction=fraction_eq, normalize=normalize)
                 # Save RDF data to file
                 try:
                     np.savetxt(rdf_file, 
@@ -492,6 +521,7 @@ class SimulationSet:
             sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
             sim.load(cache=cache, workers=workers, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
+
 
     def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
         """Plot ensemble-averaged energy vs time for the loaded simulations.
@@ -599,6 +629,66 @@ class SimulationSet:
                 equilibrium_energies = energies[eq_idx:] if eq_idx < len(energies) - 1 and show_eq else energies
                 if len(equilibrium_energies) > 0:
                     ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
+
+        # Hide unused subplots
+        total_plots = len(axes.flatten())
+        for idx in range(len(self.simulations), total_plots):
+            ax = axes[idx//ncols, idx%ncols]
+            ax.axis('off')
+
+        plt.tight_layout()
+        plt.show()    
+
+
+    def plot_rdf(self, rdfs, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16):
+        """Plot ensemble-averaged RDF for the loaded simulations.
+        Parameters
+        ----------
+        rdfs : list of tuples
+            Each tuple contains (r, g, g_std) for a simulation.
+        ncols : int, default 3
+            Number of columns in the subplot grid.
+        figsize : tuple, default (12, 3)
+            Figure size (width, height) in inches for each row.
+        title_fontsize : int, default 10
+            Font size for subplot titles.
+        suptitle_fontsize : int, default 16
+            Font size for the overall figure title.
+
+        Returns
+        -------
+        None
+        """
+
+        # Set up subplots
+
+        nrows = int(np.ceil(len(self.simulations)/ncols))
+        figsize_scaled = (figsize[0], figsize[1] * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
+
+        fig_title = f'Ensemble averaged RDFs -- {self.data_path.parts[-1]}'
+        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
+
+        if not self.simulations:
+            print("No simulations loaded: Nothing to plot.")
+            return
+        
+        for isim, sim in enumerate(self.simulations):
+
+            data = rdfs[isim]
+            ax = axes[isim//ncols, isim%ncols]
+            title = f'Simulation #{sim.metadata["simulation_number"]}:' \
+                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+            ax.set_title(title, fontsize = title_fontsize)
+
+            if data is None:
+                ax.set_axis_off() 
+                ax.text(0.5, 0.5, 'No RDF available', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+            else:
+                ax.plot(data[0], data[1], marker='o', linestyle='-', markersize=2)
+                ax.set_xlabel(r'$r/a_0$')
+                ax.set_ylabel('Reduced $g(r)$' if len(data) == 4 else '$g(r)$')
+                ax.grid()
 
         # Hide unused subplots
         total_plots = len(axes.flatten())

@@ -193,7 +193,7 @@ class Trajectory:
     # RDF (Radial Distribution Function) Analysis Methods
     # ==========================================================================
 
-    def get_rdf(self, r_max=None, dr=0.1, g_ref=None):
+    def get_rdf(self, r_max=None, dr=0.1, fraction=1.0, g_ref=None):
         """
         Calculate radial distribution function averaged over trajectory.
         
@@ -203,6 +203,8 @@ class Trajectory:
             Maximum distance for RDF (default: half of cell diagonal)
         dr : float, default 0.1
             Bin width in Angstroms
+        fraction : float, default 1.0
+            Fraction of trajectory to use for RDF calculation (e.g., 0.5 for last half)
         g_ref : ndarray, optional
             Reference RDF for normalization (from full lattice at coverage=1).
             If provided, normalizes by number of neighbors in each shell.
@@ -216,7 +218,7 @@ class Trajectory:
             
         Notes
         -----
-        RDF is calculated for occupied sites only and averaged over all states.
+        RDF is averaged over fraction of states.
         Normalization follows zacros_functions.py: divides counts by g_ref 
         (number of neighbors in each shell) and by coverage.
         """
@@ -235,12 +237,16 @@ class Trajectory:
         bin_edges = np.linspace(0.0, r_max, n_bins + 1)
         r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         g_r = np.zeros(n_bins)
+
+        # Determine which states to include based on fraction
+        eq_idx = int((1.0 - fraction) * len(self.states))
+        states_to_use = self.states[eq_idx:]
         
         # Get average coverage
-        avg_coverage = np.mean([s.get_coverage() for s in self.states])
+        avg_coverage = np.mean([s.get_coverage() for s in states_to_use])
         
-        # Accumulate over all states
-        for st in self.states:
+        # Accumulate over all states in states_to_use
+        for st in states_to_use:
             occupied_coords = st.get_occupied_coords()
             n_occupied = len(occupied_coords)
             
@@ -269,8 +275,8 @@ class Trajectory:
         
         # Normalize by number of states
         # Factor of 2 to account for unordered pairs
-        if len(self.states) > 0:
-            g_r = 2 * g_r / len(self.states)
+        if len(states_to_use) > 0:
+            g_r = 2 * g_r / len(states_to_use)
                     
         return r_bins, g_r
         
