@@ -359,7 +359,7 @@ class SimulationSet:
         return fit_results
 
 
-    def get_ensemble_energy_vs_time(self, n_bins=100):
+    def get_ensemble_energy_vs_time(self, n_bins=100, verbose=False):
 
         """
         Get ensemble-averaged energy vs time for all simulations in the set.
@@ -367,6 +367,8 @@ class SimulationSet:
         ----------
         n_bins : int, default 100
             Number of time bins for averaging.
+        verbose : bool, default False
+            If True, print detailed calculation information.
 
         Returns
         -------
@@ -389,11 +391,18 @@ class SimulationSet:
 
             try:
                 # Load energy vs time data from file
-                times, energies, energies_std = np.loadtxt(en_file, skiprows=1, unpack=True)
-                n_bins_file = len(times)
+                with open(en_file, 'r') as f:
+                    n_bins_file = int(f.readline().split()[-1])
+                    header = f.readline()  # skip header
+                times, energies, energies_std = np.loadtxt(en_file, unpack=True)
             except: 
                 pass
                 
+            if verbose:                
+                print(f"Calculating mean energy for simulation #{sim.metadata['simulation_number']}...")
+                print(f"Parameters:  n_bins={n_bins}")
+                print(f"Cached vals: n_bins={n_bins_file}")
+
             if n_bins != n_bins_file:
                 # Recalculate averages
                 times, energies, energies_std = sim.get_ensemble_energy_vs_time(n_bins=n_bins)
@@ -401,7 +410,7 @@ class SimulationSet:
                 try:
                     np.savetxt(en_file, 
                         np.column_stack((times, energies, energies_std)), 
-                        header='Time_s Energy_eV Energy_std_eV')
+                        header=f'Parameters: n_bins = {n_bins}\nTime_s Energy_eV Energy_std_eV')
                 except:
                     pass
         
@@ -410,7 +419,7 @@ class SimulationSet:
         return results
 
 
-    def get_ensemble_rdfs(self, r_max=40.0, dr=0.1, normalize=True, recalculate=False, verbose=False):
+    def get_ensemble_rdfs(self, r_max=40.0, dr=0.1, normalize=True, verbose=False):
 
         """
         Get ensemble-averaged RDF for all simulations in the set.
@@ -422,9 +431,6 @@ class SimulationSet:
             Bin width for RDF (Angstroms)
         normalize : bool, default True
             If True, normalize RDF using reference
-        recalculate : bool, default False
-            If True,  unconditionally recalculate and cache RDFs.
-            If False, use cached RDFs if they exist and match parameters.
         verbose : bool, default False
             If True, print detailed calculation information.
 
@@ -450,7 +456,7 @@ class SimulationSet:
 
             # Get equilibrium fraction for this simulation
             fraction_eq = self.fractions_eq[sim.metadata["simulation_number"]]
-            # if not (or ill) specified, skip and clear cache if exists
+            # if not or badly specified, skip and clear cache if exists
             if fraction_eq is None or fraction_eq <= 0.0 or fraction_eq > 1.0:
                 # Clean cache for invalid fraction
                 if rdf_file.exists():
@@ -464,34 +470,43 @@ class SimulationSet:
             r_max_file = 0
             dr_file = 0
             normalize_file = False
+            fraction_eq_file = 0
             try:
                 # Load RDF data from file
-                data = np.loadtxt(rdf_file, skiprows=1, unpack=True)
-                r = data[0]
-                dr_file = r[1] - r[0]
-                r_max_file = r.max() + dr_file/2
-                if len(data) == 4:
-                    normalize_file = True
+                with open(rdf_file, 'r') as f:
+                    pars_line = f.readline().strip().split()
+                    r_max_file = float(pars_line[3])
+                    dr_file = float(pars_line[5])
+                    fraction_eq_file = float(pars_line[7])
+                    normalize_file = pars_line[9].lower() == 'true'
+                data = np.loadtxt(rdf_file, unpack=True)
             except: 
                 pass
 
-            if verbose:                
-                print(f"Calculating RDF for simulation #{sim.metadata['simulation_number']} with fraction {fraction_eq:.3f} ...")
-                print(f"Parameters:  r_max={r_max}, dr={dr}, normalize={normalize}")
-                print(f"Cached vals: r_max={r_max_file}, dr={dr_file}, normalize={normalize_file}")
-
             if not np.isclose(r_max, r_max_file) or \
                 not np.isclose(dr, dr_file) or \
-                normalize != normalize_file or recalculate:
+                not np.isclose(fraction_eq, fraction_eq_file) or \
+                normalize != normalize_file:
+                if verbose:                
+                    print(f"Calculating RDF for simulation #{sim.metadata['simulation_number']}...")
+                    print(f"  Parameters:  r_max={r_max}, dr={dr}, fraction={fraction_eq}, normalize={normalize}")
+                    print(f"  Cached vals: r_max={r_max_file}, dr={dr_file}, fraction={fraction_eq_file}, normalize={normalize_file}")
+
                 # Recalculate reference and ensemble RDFs for equilibrium fraction
                 data = sim.get_ensemble_rdf( r_max=r_max, dr=dr, fraction=fraction_eq, normalize=normalize)
                 # Save RDF data to file
                 try:
                     np.savetxt(rdf_file, 
                         np.column_stack(data), 
-                        header='r_Angstrom g_r g_std g_ref_r' if normalize else 'r_Angstrom g_r g_std')
+                        header=f'  Parameters: r_max= {r_max} dr= {dr} fraction= {fraction_eq} normalize= {normalize}\n'
+                                +'r_Angstrom g_r g_std g_ref_r' if normalize else 'r_Angstrom g_r g_std')
                 except: 
                     pass
+
+            else:
+                if verbose:                
+                    print(f"Using cached RDF for simulation #{sim.metadata['simulation_number']}...")
+                    print(f"Parameters:  r_max={r_max}, dr={dr}, fraction={fraction_eq}, normalize={normalize}")
                 
             results.append(data)
 
