@@ -130,6 +130,46 @@ class State:
             print(f'cannot read history_output.txt from {self.folder}')
 
     
+
+    def get_accessibility(self):
+        """
+        Calculate accessibility (number of vacant nearest neighbors) for each occupied site.
+        
+        Returns
+        -------
+        accessibility : ndarray
+            Number of vacant nearest neighbors (0 to max_coordination)
+            
+        Notes
+        -----
+        Accessibility measures how many nearest neighbor sites are vacant,
+        which affects reactivity and diffusion rates.
+        """
+
+        acc13_list = []
+        acc2_list  = []
+        
+        for site_idx in self.get_occupied_sites():
+            # Get nearest neighbors for this site
+            shell_1 = self.lattice.site_nns[site_idx]
+
+            # 2nd shell (angle between lines connecting site_idx with its nn site 
+            #            and the nn site with a 2nd shell site is 120 degrees)
+            shell_2 = [self.lattice.site_nns[s][i-1] for i, s in enumerate(shell_1)]
+
+            # 3rd shell (the line connecting site_idx with its nn site and its 3rd shell site is straight)
+            shell_3 = [self.lattice.site_nns[s][i] for i, s in enumerate(shell_1)]
+
+            # Count vacant neighbors
+            vacant_13 = np.sum((self.occupation[shell_1] + self.occupation[shell_3]) == 0)
+            vacant_2  = np.sum(self.occupation[shell_2] == 0)
+
+            acc13_list.append(vacant_13)
+            acc2_list.append(vacant_2)
+
+                
+        return np.array(acc13_list), np.array(acc2_list)
+
     def get_coverage(self):
         """
         Calculate the coverage (fraction of occupied sites).

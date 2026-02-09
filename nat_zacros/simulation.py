@@ -413,6 +413,60 @@ class Simulation:
         else:
             return r, g_avg, g_std
     
+    def get_ensemble_accessibility(self, fraction=1.0):
+        """
+        Compute ensemble-averaged site accessibility histogram.
+        
+        Accessibility measures how many nearest neighbor sites are vacant for occupied sites,
+        which affects reactivity and diffusion rates.
+        
+        Parameters
+        ----------
+        fraction : float, default 1.0
+            Fraction of trajectory data to use for accessibility calculation (e.g., 0.5 for last half)
+            
+        Returns
+        -------
+        accessibility : ndarray
+            Number of vacant nearest neighbors (0 to max_coordination)
+        frequency_avg : ndarray
+            Ensemble-averaged frequency distribution
+        frequency_std : ndarray
+            Standard deviation of frequency distribution across trajectories
+        
+        Raises
+        ------
+        RuntimeError
+            If trajectories have not been loaded yet
+        """
+        if len(self.trajectories) == 0:
+            raise RuntimeError(
+                "No trajectories loaded. Call load_trajectories() first."
+            )
+        
+        # Compute accessibility for each trajectory
+        accessibilities = []
+        for i, traj in enumerate(self.trajectories):
+            acc, freq = traj.get_accessibility_histogram()
+            accessibilities.append(freq)
+        
+        # Get max coordination from first trajectory
+        max_coord = np.max(self.trajectories[0].lattice.site_coordinations)
+        accessibility = np.arange(max_coord + 1)
+        
+        # Pad all frequencies to same length and compute ensemble statistics
+        frequencies_padded = []
+        for freq in accessibilities:
+            padded = np.zeros(max_coord + 1)
+            padded[:len(freq)] = freq
+            frequencies_padded.append(padded)
+        
+        frequencies_array = np.array(frequencies_padded)
+        frequency_avg = np.mean(frequencies_array, axis=0)
+        frequency_std = np.std(frequencies_array, axis=0)
+        
+        return accessibility, frequency_avg, frequency_std
+    
     def get_ensemble_energy_vs_time(self, n_bins=100):
         """
         Compute ensemble-averaged energy as function of time.

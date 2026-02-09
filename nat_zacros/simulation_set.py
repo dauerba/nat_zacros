@@ -62,7 +62,7 @@ class SimulationSet:
     """
 
     def __init__(self, data_path, log_file='jobs.log', results_dir='results', simset_dir='jobs', 
-                 en_file_sfx='energy.dat', rdf_file_sfx='rdf.dat'):
+                 en_file_sfx='energy.dat', rdf_file_sfx='rdf.dat', acc_file_sfx='accessibility.dat'):
         """
         Initialize a SimulationSet.
         
@@ -83,6 +83,9 @@ class SimulationSet:
         rdf_file_sfx : str, optional
             Suffix for RDF data files (default: 'rdf.dat').
             If None, RDF data files are not created.
+        acc_file_sfx : str, optional
+            Suffix for accessibility data files (default: 'accessibility.dat').
+            If None, accessibility data files are not created.
         """
         
         # Validate the simulation set directory exists
@@ -90,6 +93,7 @@ class SimulationSet:
             raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
 
         self.data_path          = Path(data_path)
+        self.acc_file_sfx       = acc_file_sfx
         self.en_file_sfx        = en_file_sfx
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
@@ -232,6 +236,25 @@ class SimulationSet:
                     rdf_file.unlink()
                     if verbose:
                         print(f"RDF cache cleared for simulation #{sim.metadata['simulation_number']} ({rdf_file.name})")
+
+    def clear_accessibility_cache(self, verbose=False):
+        """
+        Clear cached accessibility data files for all simulations in the set.
+        
+        Parameters
+        ----------
+        verbose : bool, default False
+            If True, print detailed clearing information.
+        """
+        for sim in self.simulations:
+            if self.acc_file_sfx is not None:
+                acc_file = Path(self.data_path) / self.results_dir / \
+                           f"{sim.metadata['simulation_number']}_{self.acc_file_sfx}"
+
+                if acc_file.exists():
+                    acc_file.unlink()
+                    if verbose:
+                        print(f"Accessibility cache cleared for simulation #{sim.metadata['simulation_number']} ({acc_file.name})")
 
     def find_equilibrium_fraction_fit(self, energies_vs_time, threshold=0.01, min_equilibrium_points=10, 
                                        a0_fixed=True, a0_guess_points=10):
@@ -513,6 +536,74 @@ class SimulationSet:
         return results
 
 
+    def get_ensemble_accessibilities(self, verbose=False):
+        """
+        Get ensemble-averaged accessibility for all simulations in the set.
+        
+        Accessibility measures how many nearest neighbor sites are vacant,
+        which affects reactivity and diffusion rates.
+        
+        Parameters
+        ----------
+        verbose : bool, default False
+            If True, print detailed calculation information.
+
+        Returns
+        -------
+        results : list of tuples
+            Each tuple contains (accessibility, frequency, frequency_std) for a simulation.
+            accessibility is ndarray of vacant neighbor counts (0 to max_coordination).
+            frequency is ndarray of frequencies for each accessibility level.
+            frequency_std is ndarray of standard deviations across trajectories.
+        """
+
+        results = []
+        for sim in self.simulations:
+
+            if self.acc_file_sfx is not None:
+                acc_file = Path(self.data_path) / self.results_dir / \
+                           f"{sim.metadata['simulation_number']}_{self.acc_file_sfx}"
+            else:
+                acc_file = None
+
+            # Try to load accessibility data from file
+            acc_file_exists = False
+            if acc_file is not None:
+                try:
+                    data = np.loadtxt(acc_file, skiprows=1, unpack=True)
+                    acc_file_exists = True
+                    if verbose:
+                        print(f"Loaded cached accessibility for simulation #{sim.metadata['simulation_number']}")
+                except:
+                    pass
+
+            if verbose and not acc_file_exists:
+                print(f"Calculating accessibility for simulation #{sim.metadata['simulation_number']} ...")
+
+            if not acc_file_exists:
+                # Recalculate ensemble accessibility
+                data = sim.get_ensemble_accessibility()
+                
+                # Save accessibility data to file
+                if acc_file is not None:
+                    try:
+                        accessibility, frequency, frequency_std = data
+                        # Save as columns: accessibility_level, frequency, frequency_std
+                        np.savetxt(acc_file, 
+                            np.column_stack([accessibility, frequency, frequency_std]), 
+                            header='accessibility_level frequency frequency_std',
+                            fmt='%d %f %f')
+                        if verbose:
+                            print(f"Cached accessibility to {acc_file.name}")
+                    except Exception as e:
+                        if verbose:
+                            print(f"Warning: Could not save accessibility cache: {e}")
+                
+            results.append(data)
+
+        return results
+
+
     def load(self, cache=None, workers=mp.cpu_count(), simulations=None, verbose=False):
         """
         Load data for simulations in the set.
@@ -704,6 +795,72 @@ class SimulationSet:
                 ax.set_xlabel(r'$r/a_0$')
                 ax.set_ylabel('Reduced $g(r)$' if len(data) == 4 else '$g(r)$')
                 ax.grid()
+
+        # Hide unused subplots
+        total_plots = len(axes.flatten())
+        for idx in range(len(self.simulations), total_plots):
+            ax = axes[idx//ncols, idx%ncols]
+            ax.axis('off')
+
+        plt.tight_layout()
+        plt.show()    
+
+
+    def plot_accessibilities(self, accessibilities, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16):
+        """Plot ensemble-averaged site accessibility for the loaded simulations.
+        
+        Parameters
+        ----------
+        accessibilities : list of tuples
+            Each tuple contains (accessibility, frequency, frequency_std) for a simulation.
+            accessibility is ndarray of vacant neighbor counts (0 to max_coordination).
+            frequency is ndarray of frequencies for each accessibility level.
+            frequency_std is ndarray of standard deviations across trajectories.
+        ncols : int, default 3
+            Number of columns in the subplot grid.
+        figsize : tuple, default (12, 2.5)
+            Figure size (width, height) in inches for each row.
+        title_fontsize : int, default 10
+            Font size for subplot titles.
+        suptitle_fontsize : int, default 16
+            Font size for the overall figure title.
+
+        Returns
+        -------
+        None
+        """
+
+        # Set up subplots
+        nrows = int(np.ceil(len(self.simulations)/ncols))
+        figsize_scaled = (figsize[0], figsize[1] * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
+
+        fig_title = f'Ensemble averaged accessibility -- {self.data_path.parts[-1]}'
+        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
+
+        if not self.simulations:
+            print("No simulations loaded: Nothing to plot.")
+            return
+        
+        for isim, sim in enumerate(self.simulations):
+
+            data = accessibilities[isim]
+            ax = axes[isim//ncols, isim%ncols]
+            title = f'Simulation #{sim.metadata["simulation_number"]}:' \
+                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+            ax.set_title(title, fontsize=title_fontsize)
+
+            if data is None:
+                ax.set_axis_off() 
+                ax.text(0.5, 0.5, 'No accessibility available', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+            else:
+                accessibility, frequency, frequency_std = data
+                # Plot bar chart with error bars
+                ax.bar(accessibility, frequency, yerr=frequency_std, capsize=5, alpha=0.7, color='steelblue', edgecolor='black')
+                ax.set_xlabel('Number of vacant nearest neighbors')
+                ax.set_ylabel('Frequency')
+                ax.set_xticks(accessibility)
+                ax.grid(axis='y', alpha=0.3)
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
