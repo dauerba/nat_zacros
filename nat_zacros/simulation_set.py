@@ -192,22 +192,57 @@ class SimulationSet:
             sim.clear_cache(cache=cache, verbose=verbose)
 
 
-    def clear_energy_cache(self, verbose=False):
+    # -----------------------------------------------------------------------------
+    # ------            dja change 2026-02-09                                ------
+    # ------            Fix to elear_energy cache                            ------
+    # -----------------------------------------------------------------------------
+    
+    # OLD CODE: used loop of sim in self.simulations to clear energy cache for all simulations in the set, 
+    # but self.simulations is empty in initilzed SimulationSet as shown in debug print statement below
+
+    # def clear_energy_cache(self, verbose=False):
+    #   for sim in self.simulations:
+
+
+    def clear_energy_cache(self, simulations=None, verbose=False):
 
         """
-        Clear cached energy vs time data files for all simulations in the set.
+        Clear cached energy vs time data files for selected simulations in the set.
         Parameters
         ----------
+        simulations : list of int or None, default None
+            If list of int, clear energy cache only for specified simulation numbers. 
+            If None, clear for all simulations in the simulation set.
         verbose : bool, default False
             If True, print detailed clearing information.
         
         """
-       
-        for sim in self.simulations:
+
+        print(f"DEBUG: self.simulations in clear_energy_cache: {self.simulations}")
+        
+        if(verbose):
+            if simulations==None:
+                print(f"Clearing energy cache for all simulations in set {self.simset_dir} ...")
+            else:
+                print(f"Clearing energy cache for simulations {simulations} in set {self.simset_dir} ...")
+        
+        md_to_clear = self.metadata if simulations is None \
+                        else [md for md in self.metadata if md['simulation_number'] in simulations]
+        
+        for md in md_to_clear:
+            sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
+            sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            sim.clear_cache(cache='pickle', verbose=verbose) 
+                    
+            print(f"sim: {sim} ")
+            if verbose:
+                print(f"Checking energy cache for simulation #{sim.metadata['simulation_number']} ...")
 
             if self.en_file_sfx is not None:
                 en_file = Path(self.data_path) / self.results_dir / \
                             f"{sim.metadata['simulation_number']}_{self.en_file_sfx}"
+                if verbose:
+                    print(f"Checking energy cache for simulation #{sim.metadata['simulation_number']} ({en_file.name}) ...")
 
                 if en_file.exists():
                     en_file.unlink()
