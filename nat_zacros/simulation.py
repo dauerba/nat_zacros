@@ -13,6 +13,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
+from .constants import CACHE_FILES
 
 class Simulation:
     """
@@ -51,6 +52,9 @@ class Simulation:
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
     """
 
+    # Reference centralized cache file definitions 
+    _CACHE_FILES = CACHE_FILES
+
     def __init__(self, simulation_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
         """
         Initialize a simulation.
@@ -66,11 +70,6 @@ class Simulation:
             Name of the results directory (default: 'results')
 
         """
-
-        # Cache file extensions dictionary
-        self._EXTENSIONS = {
-            'pickle': 'pkl'
-        }
 
         self.is_valid = True  # Assume the simulation is valid initially
         self.simulation_dir = Path(simulation_dir)
@@ -114,32 +113,38 @@ class Simulation:
                     else:
                         self._load_metadata(log_file)
         
-    def clear_cache(self, cache=None, verbose=False):
-        """
-        Clear cached trajectory data files for the specified cache type.
+    # def clear_cache(self, cache=None, verbose=False):
+    #     """
+    #     Clear cached trajectory data files for the specified cache type.
         
-        Parameters
-        ----------
-        cache : str, list of str, or None, default None
-            If str, clear cache of specified file format. If None, clear all cache types.
-        verbose : bool, default False
-            If True, print detailed cache clearing information.
-        """
+    #     Parameters
+    #     ----------
+    #     cache : str, list of str, or None, default None
+    #         If str, clear cache of specified file format. If None, clear all cache types.
+    #     verbose : bool, default False
+    #         If True, print detailed cache clearing information.
+    #     """
 
-        if cache is None:
-            formats_to_clear = self._EXTENSIONS.keys()
-        elif type(cache) is list:
-            formats_to_clear = cache
-        elif type(cache) is str:
-            formats_to_clear = [cache]
+    #     if cache is None:
+    #         formats_to_clear = self._EXTENSIONS.keys()
+    #     elif type(cache) is list:
+    #         formats_to_clear = cache
+    #     elif type(cache) is str:
+    #         formats_to_clear = [cache]
 
-        for format in formats_to_clear:
-            cache_file = self.results_dir / f"{self.metadata['simulation_number']}_trajs.{self._EXTENSIONS[format]}"
-            if cache_file.exists():
-                cache_file.unlink()
-                if verbose:
-                    print(f"Cleared trajectory cache: {cache_file.name}")
+    #     for format in formats_to_clear:
+    #         cache_file = self.results_dir / f"{self.metadata['simulation_number']}_trajs.{self._EXTENSIONS[format]}"
+    #         if cache_file.exists():
+    #             cache_file.unlink()
+    #             if verbose:
+    #                 print(f"Cleared trajectory cache: {cache_file.name}")
 
+
+    # -----------------------------------------------------------------------------
+    # ------            Consider whether this function is needed             ------
+    # ------   will we create a simulation outside of SimulationSet ?        ------
+    # -----------------------------------------------------------------------------
+    
 
     def _load_metadata(self, log_file):
         """
@@ -242,15 +247,19 @@ class Simulation:
 
         return trajs
 
+    # WARNING: need to revise or eliminate.
+    # This function is currently called from SimulationSet do do loading
+    # consider moving all loading to SimulationSet and eliminating this function from Simulation class
+    #,will we create Simulation objects from SimulationSet?
 
-    def load(self, cache=None, workers=mp.cpu_count(), verbose=False):
+    def load(self, target='trajs', workers=mp.cpu_count(), verbose=False):
         """
         Load trajectory data with caching support.
 
         Parameters
         ----------
-        cache : str or None, default None
-            If str, use caching with specified file format. If None, do not use caching.
+        target : str or None, default 'trajs'
+            Specifies the type of data to load. Currently only 'trajs' is supported.
         workers : int or None, default mp.cpu_count()
             Number of parallel workers to use for loading.
             If None, load sequentially.
@@ -259,21 +268,21 @@ class Simulation:
         """
 
         # Determine cache file path and extension
-        if cache is not None:
-            if cache not in self._EXTENSIONS:
-                raise ValueError(f"Unsupported cache format: {cache}. Supported formats: {list(self._EXTENSIONS.keys())}")
-            cache_file = self.results_dir / f"{self.metadata['simulation_number']}_trajs.{self._EXTENSIONS[cache]}"
+        if target is not None:
+            if target not in self._CACHE_FILES:
+                raise ValueError(f"Unsupported cache target: {target}. Supported targets: {list(self._CACHE_FILES.keys())}")
+            
+            suffix, ext = self._CACHE_FILES[target]
+            cache_file = self.results_dir / f"{self.metadata['simulation_number']}{suffix}.{ext}"
 
             # Try loading from cache
             if cache_file.exists():
-                if verbose: print(f"Loading trajectories from cache: {cache_file.name}")
+                if verbose: print(f"Loading {target} from cache: {cache_file.name}")
 
-                if cache=='pickle':
+                if ext == 'pkl':
                     with open(cache_file, 'rb') as f:
                         self.trajectories = pickle.load(f)
-                # too verbose, drop printing of loaded info
-                # if verbose: print(f"Loaded {len(self.trajectories)} cached trajectories")
-                return
+                    return
 
         # Load trajectories from files
         if verbose:
@@ -294,10 +303,11 @@ class Simulation:
             print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
 
         # Save to cache
-        if cache is not None:
+        if target is not None:
+            suffix, ext = self._CACHE_FILES[target]
             if verbose: print(f"Saving to cache: {cache_file}")
 
-            if cache=='pickle':
+            if ext == 'pkl':
                 with open(cache_file, 'wb') as f:
                     pickle.dump(self.trajectories, f)
 
