@@ -92,6 +92,15 @@ class SimulationSet:
         if not Path(data_path).exists():
             raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
 
+        # Dictionary of cache file (suffix, extension) tuples
+        self._CACHE_FILES = {
+            'trajs': ('_trajs','pkl'),
+            'energy': ('_energy','dat'),
+            'rdf': ('_rdf','dat'),
+            'accessibility': ('_accessibility','dat'),
+        }
+
+
         self.data_path          = Path(data_path)
         self.acc_file_sfx       = acc_file_sfx
         self.en_file_sfx        = en_file_sfx
@@ -171,25 +180,44 @@ class SimulationSet:
                 'interactions': entry[5][1:]
                })
 
-    def clear_cache(self, cache=None, simulations=None, verbose=False):
+    def clear_cache(self, target='all', simulations=None, verbose=False):
         """
         Clear cached data for simulations in the set for the specified cache type.
         Parameters
         ----------
-        cache : str or None, default None
-            If str, clear cache of specified file format. If None, clear all cache types.
+        target : str, list of strings, default 'all'
+            If str, clear cache of specified file format; if str = 'all', clear all cache types.
+            If list of strings, clear cache for each specified file format.
         simulations : list of int or None, default None
             If list of int, clear cache only for specified simulation numbers. If None, clear for all simulation set.
         verbose : bool, default False
             If True, print detailed clearing information.
         
         """
-       
-        md_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
-        for md in md_to_clear:
-            sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
-            sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.clear_cache(cache=cache, verbose=verbose)
+
+        if type(target) is list:
+            formats_to_clear = target
+        elif type(target) is str:
+            if target == 'all':
+                formats_to_clear = self._CACHE_FILES.keys()
+            else:
+                formats_to_clear = [target]
+
+        for format in formats_to_clear:
+            if format not in self._CACHE_FILES:
+                print(f"  Unknown cache format '{format}' specified. Skipping.")
+                continue
+            else:
+                print(f"'{format}' cache is cleared.")
+
+            sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
+            for md in sims_to_clear:
+                cache_file = self.data_path / self.results_dir / \
+                            f"{md['simulation_number']}{self._CACHE_FILES[format][0]}.{self._CACHE_FILES[format][1]}"
+                if cache_file.exists():
+                    cache_file.unlink()
+                    if verbose:
+                        print(f"Cleared {format} cache: {cache_file.name}")
 
 
     # -----------------------------------------------------------------------------
