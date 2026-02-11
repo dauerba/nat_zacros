@@ -20,7 +20,7 @@ import tarfile
 from .lattice import Lattice
 from .trajectory import Trajectory
 from .simulation import Simulation
-from .constants import CACHE_FILES
+from .globals import nz_cache_files
 
 
 class SimulationSet:
@@ -115,9 +115,6 @@ class SimulationSet:
         self.verbose            = False             # default verbosity
         self.simulations        = []
 
-        # Reference centralized cache file definitions 
-        self._CACHE_FILES = CACHE_FILES
-
         # Validate if simulation set directory exists
         if not (self.data_path / self.simset_dir).exists():
             # untar jobs directory
@@ -205,12 +202,12 @@ class SimulationSet:
             formats_to_clear = target
         elif type(target) is str:
             if target == 'all':
-                formats_to_clear = self._CACHE_FILES.keys()
+                formats_to_clear = nz_cache_files.keys()
             else:
                 formats_to_clear = [target]
 
         for format in formats_to_clear:
-            if format not in self._CACHE_FILES:
+            if format not in nz_cache_files:
                 print(f"  Unknown cache format '{format}' specified. Skipping.")
                 continue
             else:
@@ -219,7 +216,7 @@ class SimulationSet:
             sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
             for md in sims_to_clear:
                 cache_file = self.data_path / self.results_dir / \
-                            f"{md['simulation_number']}{self._CACHE_FILES[format][0]}.{self._CACHE_FILES[format][1]}"
+                            f"{md['simulation_number']}{nz_cache_files[format][0]}.{nz_cache_files[format][1]}"
                 if cache_file.exists():
                     cache_file.unlink()
                     if verbose:

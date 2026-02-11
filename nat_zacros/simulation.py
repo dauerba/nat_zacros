@@ -13,7 +13,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
-from .constants import CACHE_FILES
+from .globals import nz_cache_files
 
 class Simulation:
     """
@@ -37,7 +37,7 @@ class Simulation:
         Directory for storing cache and results files
     simulation_dir : Path
         Directory containing trajectory folders (traj_1, traj_2, ...)
-    trajectories : list of trajectory
+    trajectories : list of Trajectory
         Loaded trajectory objects
     traj_dirs : list of Path
         Paths to individual trajectory directories
@@ -52,8 +52,6 @@ class Simulation:
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
     """
 
-    # Reference centralized cache file definitions 
-    _CACHE_FILES = CACHE_FILES
 
     def __init__(self, simulation_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
         """
@@ -269,10 +267,10 @@ class Simulation:
 
         # Determine cache file path and extension
         if target is not None:
-            if target not in self._CACHE_FILES:
-                raise ValueError(f"Unsupported cache target: {target}. Supported targets: {list(self._CACHE_FILES.keys())}")
+            if target not in nz_cache_files:
+                raise ValueError(f"Unsupported cache target: {target}. Supported targets: {list(nz_cache_files.keys())}")
             
-            suffix, ext = self._CACHE_FILES[target]
+            suffix, ext = nz_cache_files[target]
             cache_file = self.results_dir / f"{self.metadata['simulation_number']}{suffix}.{ext}"
 
             # Try loading from cache
@@ -304,7 +302,7 @@ class Simulation:
 
         # Save to cache
         if target is not None:
-            suffix, ext = self._CACHE_FILES[target]
+            suffix, ext = nz_cache_files[target]
             if verbose: print(f"Saving to cache: {cache_file}")
 
             if ext == 'pkl':
