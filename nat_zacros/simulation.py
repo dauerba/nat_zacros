@@ -13,7 +13,6 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
-from .globals import nz_cache_files
 
 class Simulation:
     """
@@ -111,39 +110,12 @@ class Simulation:
                     else:
                         self._load_metadata(log_file)
         
-    # def clear_cache(self, cache=None, verbose=False):
-    #     """
-    #     Clear cached trajectory data files for the specified cache type.
-        
-    #     Parameters
-    #     ----------
-    #     cache : str, list of str, or None, default None
-    #         If str, clear cache of specified file format. If None, clear all cache types.
-    #     verbose : bool, default False
-    #         If True, print detailed cache clearing information.
-    #     """
-
-    #     if cache is None:
-    #         formats_to_clear = self._EXTENSIONS.keys()
-    #     elif type(cache) is list:
-    #         formats_to_clear = cache
-    #     elif type(cache) is str:
-    #         formats_to_clear = [cache]
-
-    #     for format in formats_to_clear:
-    #         cache_file = self.results_dir / f"{self.metadata['simulation_number']}_trajs.{self._EXTENSIONS[format]}"
-    #         if cache_file.exists():
-    #             cache_file.unlink()
-    #             if verbose:
-    #                 print(f"Cleared trajectory cache: {cache_file.name}")
-
 
     # -----------------------------------------------------------------------------
     # ------            Consider whether this function is needed             ------
     # ------   will we create a simulation outside of SimulationSet ?        ------
     # -----------------------------------------------------------------------------
     
-
     def _load_metadata(self, log_file):
         """
         Load simulation metadata from log file.

@@ -17,11 +17,7 @@ import multiprocessing as mp
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import tarfile
-from .lattice import Lattice
-from .trajectory import Trajectory
 from .simulation import Simulation
-from .globals import nz_cache_files
-
 
 class SimulationSet:
     """
@@ -73,8 +69,14 @@ class SimulationSet:
       
     """
 
-    def __init__(self, data_path, log_file='jobs.log', results_dir='results', simset_dir='jobs', 
-                 en_file_sfx='energy.dat', rdf_file_sfx='rdf.dat', acc_file_sfx='accessibility.dat'):
+    def __init__(self, data_path, 
+                 log_file='jobs.log', 
+                 results_dir='results', 
+                 simset_dir='data', 
+                 trajs_cache_sfx='trajs.pkl',
+                 en_file_sfx='energy.dat', 
+                 rdf_file_sfx='rdf.dat', 
+                 acc_file_sfx='accessibility.dat'):
         """
         Initialize a SimulationSet.
         
@@ -88,7 +90,9 @@ class SimulationSet:
         results_dir : str, optional
             Name of the subdirectory for storing results (default: 'results')
         simset_dir : str, optional
-            Name of the subdirectory containing simulations (default: 'jobs')
+            Name of the subdirectory containing simulations (default: 'data')
+        trajs_cache_sfx : str, optional
+            Suffix for trajectory cache files (default: 'trajs.pkl').
         en_file_sfx : str, optional
             Suffix for energy data files (default: 'energy.dat').
             If None, energy data files are not created.
@@ -104,12 +108,19 @@ class SimulationSet:
         if not Path(data_path).exists():
             raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
 
+        self._cache_files = {
+            'trajs':  trajs_cache_sfx,
+        }
+
+        self._results_files = {
+            'energy': en_file_sfx,
+            'rdf': rdf_file_sfx,
+            'accessibility': acc_file_sfx,
+        }
+
         self.data_path          = Path(data_path)
-        self.acc_file_sfx       = acc_file_sfx
-        self.en_file_sfx        = en_file_sfx
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
-        self.rdf_file_sfx       = rdf_file_sfx
         self.results_dir        = results_dir
         self.simset_dir         = simset_dir
         self.verbose            = False             # default verbosity
@@ -202,78 +213,71 @@ class SimulationSet:
             formats_to_clear = target
         elif type(target) is str:
             if target == 'all':
-                formats_to_clear = nz_cache_files.keys()
+                formats_to_clear = self._cache_files.keys()
             else:
                 formats_to_clear = [target]
 
         for format in formats_to_clear:
-            if format not in nz_cache_files:
-                print(f"  Unknown cache format '{format}' specified. Skipping.")
+            if format not in self._cache_files:
+                print(f"Unknown cache format '{format}' specified. Skipping.\n")
                 continue
-            else:
-                print(f"'{format}' cache is cleared.")
 
             sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
             for md in sims_to_clear:
                 cache_file = self.data_path / self.results_dir / \
-                            f"{md['simulation_number']}{nz_cache_files[format][0]}.{nz_cache_files[format][1]}"
+                            f"{md['simulation_number']}_{self._cache_files[format]}"
                 if cache_file.exists():
                     cache_file.unlink()
                     if verbose:
-                        print(f"Cleared {format} cache: {cache_file.name}")
+                        print(f"  Cache file {cache_file.name} deleted.")
+
+            if simulations is None:
+                print(f"'{format}' cache is cleared for all simulations in the set.\n")
+            else:
+                print(f"'{format}' cache is cleared for simulations: {simulations}\n")
 
 
-    def clear_energy_cache(self, simulations=None, verbose=False):
-
+    def clear_results(self, target='all', simulations=None, verbose=False):
         """
-        Clear cached energy vs time data files for selected simulations in the set.
+        Clear results files for simulations in the set for the specified file format.
         Parameters
         ----------
+        target : str, list of strings, default 'all'
+            If str, clear results of specified file format; if str = 'all', clear all results types.
+            If list of strings, clear results for each specified file format.
         simulations : list of int or None, default None
-            If list of int, clear energy cache only for specified simulation numbers. 
-            If None, clear for all simulations in the simulation set.
-        verbose : bool, default False
+            If list of int, clear results only for specified simulation numbers. If None, clear for all simulation set.
+        verbose : bool, default False   
             If True, print detailed clearing information.
         
         """
-        
-        self.clear_cache(target='energy', simulations=simulations, verbose=verbose)
 
-    def clear_rdf_cache(self, simulations=None, verbose=False):
+        if type(target) is list:
+            formats_to_clear = target
+        elif type(target) is str:
+            if target == 'all':
+                formats_to_clear = self._results_files.keys()
+            else:
+                formats_to_clear = [target]
 
-        """
-        Clear cached RDF data files for selected simulations in the set.
-        
-        Parameters
-        ----------
-        simulations : list of int or None, default None
-            If list of int, clear RDF cache only for specified simulation numbers. 
-            If None, clear for all simulations in the simulation set
-        verbose : bool, default False
-            If True, print detailed clearing information.
-        
-        """
-       
-        self.clear_cache(target='rdf', simulations=simulations, verbose=verbose)
+        for format in formats_to_clear:
+            if format not in self._results_files:
+                print(f"Unknown results format '{format}' specified. Skipping.\n")
+                continue
 
-            
+            sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
+            for md in sims_to_clear:
+                results_file = self.data_path / self.results_dir / \
+                            f"{md['simulation_number']}_{self._results_files[format]}"
+                if results_file.exists():
+                    results_file.unlink()
+                    if verbose:
+                        print(f"  Results file {results_file.name} deleted.")
 
-    def clear_accessibility_cache(self, simulations=None, verbose=False):
-        """
-        Clear cached accessibilitydata files for selected simulations in the set.
-        
-        Parameters
-        ----------
-        simulations : list of int or None, default None
-            If list of int, clear energy cache only for specified simulation numbers. 
-            If None, clear for all simulations in the simulation set
-        verbose : bool, default False
-            If True, print detailed clearing information.
-        
-        """
-       
-        self.clear_cache(target='accessibility', simulations=simulations, verbose=verbose)
-
+            if simulations is None:
+                print(f"'{format}' results are cleared for all simulations in the set.\n")
+            else:
+                print(f"'{format}' results are cleared for simulations: {simulations}\n")
 
     def find_equilibrium_fraction_fit(self, energies_vs_time, threshold=0.01, min_equilibrium_points=10, 
                                        a0_fixed=True, a0_guess_points=10):
@@ -425,9 +429,9 @@ class SimulationSet:
         for sim in self.simulations:
 
             n_bins_file = 0
-            if self.en_file_sfx is not None:
+            if self._results_files['energy'] is not None:
                 en_file = Path(self.data_path) / self.results_dir / \
-                            f"{sim.metadata['simulation_number']}_{self.en_file_sfx}"
+                            f"{sim.metadata['simulation_number']}_{self._results_files['energy']}"
             else:
                 en_file = None
 
@@ -443,7 +447,7 @@ class SimulationSet:
             if verbose:                
                 print(f"Calculating mean energy for simulation #{sim.metadata['simulation_number']}...")
                 print(f"Parameters:  n_bins={n_bins}")
-                print(f"Cached vals: n_bins={n_bins_file}")
+                print(f"Saved vals: n_bins={n_bins_file}")
 
             if n_bins != n_bins_file:
                 # Recalculate averages
@@ -490,9 +494,9 @@ class SimulationSet:
         results = []
         for sim in self.simulations:
 
-            if self.rdf_file_sfx is not None:
+            if self._results_files['rdf'] is not None:
                 rdf_file   = Path(self.data_path) / self.results_dir / \
-                               f"{sim.metadata['simulation_number']}_{self.rdf_file_sfx}"
+                               f"{sim.metadata['simulation_number']}_{self._results_files['rdf']}"
             else:
                 rdf_file = None
 
@@ -532,7 +536,7 @@ class SimulationSet:
                 if verbose:                
                     print(f"Calculating RDF for simulation #{sim.metadata['simulation_number']}...")
                     print(f"  Parameters:  r_max={r_max}, dr={dr}, fraction={fraction_eq}, normalize={normalize}")
-                    print(f"  Cached vals: r_max={r_max_file}, dr={dr_file}, fraction={fraction_eq_file}, normalize={normalize_file}")
+                    print(f"  Saved vals: r_max={r_max_file}, dr={dr_file}, fraction={fraction_eq_file}, normalize={normalize_file}")
 
                 # Recalculate reference and ensemble RDFs for equilibrium fraction
                 data = sim.get_ensemble_rdf( r_max=r_max, dr=dr, fraction=fraction_eq, normalize=normalize)
@@ -579,9 +583,9 @@ class SimulationSet:
         results = []
         for sim in self.simulations:
 
-            if self.acc_file_sfx is not None:
+            if self._results_files['accessibility'] is not None:
                 acc_file = Path(self.data_path) / self.results_dir / \
-                           f"{sim.metadata['simulation_number']}_{self.acc_file_sfx}"
+                           f"{sim.metadata['simulation_number']}_{self._results_files['accessibility']}"
             else:
                 acc_file = None
 
@@ -613,7 +617,7 @@ class SimulationSet:
                             header='accessibility_level frequency frequency_std',
                             fmt='%d %f %f')
                         if verbose:
-                            print(f"Cached accessibility to {acc_file.name}")
+                            print(f"Saved accessibility to {acc_file.name}")
                     except Exception as e:
                         if verbose:
                             print(f"Warning: Could not save accessibility cache: {e}")
@@ -621,21 +625,6 @@ class SimulationSet:
             results.append(data)
 
         return results
-
-    # # clear cache for comparison
-    # def clear_cache(self, target='all', simulations=None, verbose=False):
-    #         """
-    #         Clear cached data for simulations in the set for the specified cache type.
-    #         Parameters
-    #         ----------
-    #         target : str, list of strings, default 'all'
-    #             If str, clear cache of specified file format; if str = 'all', clear all cache types.
-    #             If list of strings, clear cache for each specified file format.
-    #         simulations : list of int or None, default None
-    #             If list of int, clear cache only for specified simulation numbers. If None, clear for all simulation set.
-    #         verbose : bool, default False
-    #             If True, print detailed clearing information.
-
 
     def load(self, target='trajs', workers=mp.cpu_count(), simulations=None, verbose=False):
         """
@@ -654,11 +643,15 @@ class SimulationSet:
             If None, load serially.
         """
         
+        if target not in self._cache_files:
+            print(f"Unknown target '{target}' specified for loading. Available targets: {list(self._cache_files.keys())}")
+            return
+
         md_to_load = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
         for md in md_to_load:
             sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
             sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
-            sim.load(target=target, workers=workers, verbose=verbose)  # Load simulation data
+            sim.load(target=self._cache_files[target], workers=workers, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
 
 
