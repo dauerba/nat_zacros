@@ -238,18 +238,19 @@ class Simulation:
         """
 
         # Determine cache file path and extension
+        print(f"Loading simulation {self.metadata['simulation_number']} with target '{target}'")
         if target is not None:
-            if target not in nz_cache_files:
-                raise ValueError(f"Unsupported cache target: {target}. Supported targets: {list(nz_cache_files.keys())}")
+            # if target not in nz_cache_files:
+            #     raise ValueError(f"Unsupported cache target: {target}. Supported targets: {list(nz_cache_files.keys())}")
             
-            suffix, ext = nz_cache_files[target]
-            cache_file = self.results_dir / f"{self.metadata['simulation_number']}{suffix}.{ext}"
+            # suffix, ext = nz_cache_files[target]
+            cache_file = self.results_dir / f"{self.metadata['simulation_number']}{target}"
 
             # Try loading from cache
             if cache_file.exists():
                 if verbose: print(f"Loading {target} from cache: {cache_file.name}")
 
-                if ext == 'pkl':
+                if cache_file.suffix == '.pkl':
                     with open(cache_file, 'rb') as f:
                         self.trajectories = pickle.load(f)
                     return
@@ -274,10 +275,10 @@ class Simulation:
 
         # Save to cache
         if target is not None:
-            suffix, ext = nz_cache_files[target]
+            # suffix, ext = nz_cache_files[target]
             if verbose: print(f"Saving to cache: {cache_file}")
 
-            if ext == 'pkl':
+            if cache_file.suffix == '.pkl':
                 with open(cache_file, 'wb') as f:
                     pickle.dump(self.trajectories, f)
 
