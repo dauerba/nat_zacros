@@ -57,9 +57,7 @@ class SimulationSet:
         Methods
     -------
     clear_cache(target='all', simulations=None, verbose=False)
-        clear_energy_cache(simulations=None, verbose=False)
-        clear_rdf_cache(simulations=None, verbose=False)
-        clear_accessibility_cache(simulations=None, verbose=False)
+    clear_results(target='all', simulations=None, verbose=False)
     find_equilibrium_fraction_fit(energies_vs_time, threshold=0.01, min_equilibrium_points=10, a0_fixed=True, a0_guess_points=10)
     get_ensemble_energy_vs_time(n_bins=100, verbose=False)
     get_ensemble_rdfs(r_max=40.0, dr=0.1, normalize=True, verbose=False)
@@ -71,7 +69,7 @@ class SimulationSet:
 
     def __init__(self, data_path, 
                  log_file='jobs.log', 
-                 results_dir='results', 
+#                 results_dir='results', 
                  simset_dir='data', 
                  trajs_cache_sfx='trajs.pkl',
                  en_file_sfx='energy.dat', 
@@ -87,8 +85,8 @@ class SimulationSet:
             This directory should contain jobs.log and the simulations subdirectory
         log_file : str, optional
             Name of the log file (default: 'jobs.log')
-        results_dir : str, optional
-            Name of the subdirectory for storing results (default: 'results')
+#        results_dir : str, optional
+#            Name of the subdirectory for storing results (default: 'results')
         simset_dir : str, optional
             Name of the subdirectory containing simulations (default: 'data')
         trajs_cache_sfx : str, optional
@@ -121,7 +119,7 @@ class SimulationSet:
         self.data_path          = Path(data_path)
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
-        self.results_dir        = results_dir
+#        self.results_dir        = results_dir
         self.simset_dir         = simset_dir
         self.verbose            = False             # default verbosity
         self.simulations        = []
@@ -144,8 +142,6 @@ class SimulationSet:
                 self.is_valid = False
             else:
                 print(f"Extraction complete.")
-
-
 
         self._load_metadata()
         self.simulations        = []   # initialize simulations list

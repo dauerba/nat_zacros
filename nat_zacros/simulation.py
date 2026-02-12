@@ -34,7 +34,7 @@ class Simulation:
         Simulation metadata (temperature, coverage, interactions, etc.)
     results_dir : Path
         Directory for storing cache and results files
-    simulation_dir : Path
+    dir : Path
         Directory containing trajectory folders (traj_1, traj_2, ...)
     trajectories : list of Trajectory
         Loaded trajectory objects
@@ -52,25 +52,45 @@ class Simulation:
     """
 
 
-    def __init__(self, simulation_dir, metadata=None, log_file='jobs.log', results_dirname='results'):
+    def __init__(self, dir, 
+                 metadata=None,
+                 name=None, lattice_dims=None, n_ads=None, temperature=None, interactions=None):
         """
         Initialize a simulation.
         
         Parameters
         ----------
-        simulation_dir : str or Path
-            Path to simulation directory (e.g., 'fn_3leed/jobs/1')
+        dir : str or Path
+            Path to simulation directory
             This directory should contain traj_1, traj_2, ... subdirectories
         metadata : dict, optional
-            Pre-loaded metadata (if available)
-        results_dirname : str, optional
-            Name of the results directory (default: 'results')
-
+            Pre-defined metadata (if available)
+        name : str, optional
+            Name of the simulation (default: None)
+        lattice_dims : list, optional
+            Lattice dimensions [nx, ny] (default: None)
+        n_ads : int, optional
+            Number of adsorbates (default: None)
+        temperature : float, optional
+            Temperature in Kelvin (default: None)
+        interactions : list, optional
+            List of interaction parameters (default: None)
         """
 
+        self.dir = Path(dir)
         self.is_valid = True  # Assume the simulation is valid initially
-        self.simulation_dir = Path(simulation_dir)
         
+        if metadata is not None:
+            self.metadata = metadata
+
+        self.metadata = {
+            'n_cells': None,
+            'n_adsorbates': entry[3][0],
+            'temperature': entry[4],  # K
+            'coverage': entry[3][0] / (entry[2][0] * entry[2][1]),
+            'interactions': entry[5][1:]
+            }
+
         # Validate simulation directory exists
         if not self.simulation_dir.exists():
             print(f"Simulation directory {self.simulation_dir} does not exist.")
