@@ -14,15 +14,27 @@ such as radial distribution functions (RDFs), cluster size distrbutions, and a m
 inside clusters.
 """
 
+def _custom_local_scheme(version):
+    """Custom local scheme to format timestamp as YYYY-MM-DD-HH:MM"""
+    from datetime import datetime
+    if version.dirty:
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H:%M")
+        return f"+dirty.d{timestamp}"
+    elif version.distance:
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H:%M")
+        return f"+{version.node}.d{timestamp}"
+    else:
+        return ""
+
 try:
     from ._version import version as __version__
 except ImportError:
     try:
         from setuptools_scm import get_version
-        __version__ = get_version(root='..', relative_to=__file__)
-    except (ImportError, LookupError):
+        # Use custom local scheme for formatted timestamp
+        __version__ = get_version(root='..', relative_to=__file__, local_scheme=_custom_local_scheme)
+    except Exception:
         __version__ = "unknown"
-
 
 """
 Performance Optimization
@@ -62,8 +74,6 @@ Performance Benchmark (typical system: 10 trajectories, ~100 states each, 14 cor
 """
 
 # Import all public classes and functions
-import json
-from pathlib import Path
 from .lattice import Lattice
 from .state import State
 from .trajectory import Trajectory
@@ -85,11 +95,4 @@ __all__ = [
     'SimulationSet'
 ]
 
-import os
-try:
-    from setuptools_scm import get_version
-    pkg_root = os.path.dirname(os.path.dirname(__file__))
-    __version__ = get_version(root=pkg_root)
-except Exception:
-    __version__ = "unknown"
 __author__ = 'akandra, dauerba'
