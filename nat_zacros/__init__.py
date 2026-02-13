@@ -18,11 +18,11 @@ def _custom_local_scheme(version):
     """Custom local scheme to format timestamp as YYYY-MM-DD-HH:MM"""
     from datetime import datetime
     if version.dirty:
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H:%M")
-        return f"+dirty.d{timestamp}"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        return f"dirty {timestamp}"
     elif version.distance:
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H:%M")
-        return f"+{version.node}.d{timestamp}"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        return f"{version.node[:7]} {timestamp}"
     else:
         return ""
 
