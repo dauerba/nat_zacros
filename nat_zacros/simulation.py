@@ -31,7 +31,7 @@ class Simulation:
     lattice : Lattice
         Shared lattice object for all trajectories
     metadata : dict
-        Simulation metadata (temperature, coverage, interactions, etc.)
+        Simulation metadata (temperature, coverage, energy_terms, etc.)
     results_dir : Path
         Directory for storing cache and results files
     dir : Path
@@ -54,7 +54,7 @@ class Simulation:
 
     def __init__(self, dir, 
                  metadata=None,
-                 name=None, lattice_dims=None, n_ads=None, temperature=None, interactions=None):
+                 lattice_dims=None, n_ads=None, temperature=None, energy_terms=None):
         """
         Initialize a simulation.
         
@@ -73,39 +73,59 @@ class Simulation:
             Number of adsorbates (default: None)
         temperature : float, optional
             Temperature in Kelvin (default: None)
-        interactions : list, optional
-            List of interaction parameters (default: None)
+        energy_terms : list, optional
+            List of energy terms (default: None)
         """
 
         self.dir = Path(dir)
         self.is_valid = True  # Assume the simulation is valid initially
         
         if metadata is not None:
-            self.metadata = metadata
+            self.lattice_dims = metadata['lattice_dimensions']
+            self.n_ads = metadata['n_adsorbates']
+            self.temperature = metadata['temperature']
+            self.energy_terms = metadata['energy_terms']
 
-        self.metadata = {
-            'n_cells': None,
-            'n_adsorbates': entry[3][0],
-            'temperature': entry[4],  # K
-            'coverage': entry[3][0] / (entry[2][0] * entry[2][1]),
-            'interactions': entry[5][1:]
-            }
+        args_ok = True
+        if lattice_dims is not None:
+            self.lattice_dims = lattice_dims
+        if self.lattice_dims is None:
+            print(' Lattice dimensions undefined. Use lattice_dim argument when initializing.')
+            args_ok = False
+        if n_ads is not None:
+            self.n_ads = n_ads
+        if self.lattice_dims is None:
+            print(' Number of adsorbates undefined. Use n_ads argument when initializing.')
+            args_ok = False
+        if temperature is not None:
+            self.temperature = temperature
+        if self.temperature is None:
+            print(' Temperature undefined. Use temperature argument when initializing.')
+            args_ok = False
+        if energy_terms is not None:
+            self.energy_terms = energy_terms
+        if self.energy_terms is None:
+            print(' Energy terms undefined. Use energy_terms argument when initializing.')
+            args_ok = False
+
+        if not args_ok:
+            raise Exception("Stopping execution")
 
         # Validate simulation directory exists
-        if not self.simulation_dir.exists():
-            print(f"Simulation directory {self.simulation_dir} does not exist.")
+        if not self.dir.exists():
+            print(f"Simulation directory {self.dir} does not exist.")
             self.is_valid = False
             
         else:
         
             # Auto-detect trajectory directories
             self.traj_dirs = sorted([
-                d for d in self.simulation_dir.iterdir() 
+                d for d in self.dir.iterdir() 
                 if d.is_dir() and d.name.startswith('traj_')
             ])
         
             if len(self.traj_dirs) == 0:
-                print(f"No trajectory directories (traj_*) found in {self.simulation_dir}")
+                print(f"No trajectory directories (traj_*) found in {self.dir}")
                 self.is_valid = False
             
             else:
@@ -113,89 +133,13 @@ class Simulation:
                 # Create lattice from first trajectory
                 self.lattice = Lattice(self.traj_dirs[0])
                 if not self.lattice.is_defined:
-                    print(f"Cannot load lattice data for simulation {self.simulation_dir.name}")
+                    print(f"Cannot load lattice data for simulation {self.dir.name}")
                     self.is_valid = False
                 else:
                 
                     # Initialize trajectory list (filled by load)
                     self.trajectories = []
         
-                    # Set up results directory (../../results/ from simulation_dir)
-                    self.results_dir = self.simulation_dir.parent.parent / results_dirname
-                    self.results_dir.mkdir(exist_ok=True)
-        
-                    # Load metadata from log file if not provided
-                    if metadata is not None:
-                        self.metadata = metadata
-                    else:
-                        self._load_metadata(log_file)
-        
-
-    # -----------------------------------------------------------------------------
-    # ------            Consider whether this function is needed             ------
-    # ------   will we create a simulation outside of SimulationSet ?        ------
-    # -----------------------------------------------------------------------------
-    
-    def _load_metadata(self, log_file):
-        """
-        Load simulation metadata from log file.
-        
-        Parses the log file to extract temperature, coverage, interactions,
-        and lattice dimensions for this specific simulation.
-
-        Parameters
-        ----------
-        log_file : str
-            Name of the log file (default: 'jobs.log')
-        
-        Raises
-        ------
-        FileNotFoundError
-            If log file is not found in the parent directory
-        ValueError
-            If simulation number is not found in log file
-        """
-        jobs_log = self.simulation_dir.parent / log_file
-        if not jobs_log.exists():
-            print(f"log file {jobs_log} not found. Cannot load metadata.")
-            self.is_valid = False
-            return
-        
-        # Extract simulation number from directory name (e.g., '1' from 'fn_3leed/jobs/1')
-        simulation_number = int(self.simulation_dir.name)
-        
-        # Parse jobs.log
-        with open(jobs_log, 'r') as f:
-            header = f.readline().split()  # Read header line
-            log_entries = [json.loads(line) for line in f if line.strip()]
-        
-        # Find entry matching this simulation number
-        matching_entry = None
-        for entry in log_entries:
-            if entry[0] == simulation_number:
-                matching_entry = entry
-                break
-        
-        if matching_entry is None:
-            print(
-                f"Simulation number {simulation_number} not found in {jobs_log}\n"
-                f"Available simulation numbers: {[e[0] for e in log_entries]}"
-            )
-            self.is_valid = False
-            return
-
-        # Extract metadata from log entry
-        # Format: [simulation_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
-        self.metadata = {
-            'simulation_number': matching_entry[0],
-            'job_name': matching_entry[1],
-            'lattice_dimensions': matching_entry[2],  # [nx, ny]
-            'n_cells': matching_entry[2][0] * matching_entry[2][1],
-            'n_adsorbates': matching_entry[3][0],
-            'temperature': matching_entry[4],  # K
-            'coverage': matching_entry[3][0] / (matching_entry[2][0] * matching_entry[2][1]),
-            'interactions': matching_entry[5][1:]
-        }
 
     def _load_single_trajectory(self, traj_dir):
         """

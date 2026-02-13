@@ -21,8 +21,7 @@ def _custom_local_scheme(version):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         return f"dirty {timestamp}"
     elif version.distance:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        return f"{version.node[:7]} {timestamp}"
+        return f"{version.node[:7]}"
     else:
         return ""
 

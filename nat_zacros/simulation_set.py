@@ -39,7 +39,7 @@ class SimulationSet:
     log_file : str  
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
-        Simulation metadata (temperature, coverage, interactions, etc.)
+        Simulation metadata (temperature, coverage, energy terms, etc.)
     parallel : bool
         Whether to use parallel loading of simulations.
     results_dir : str
@@ -154,7 +154,7 @@ class SimulationSet:
         """
         Load simulation metadata from log file.
         
-        Parses the log file of simulation set to extract temperature, coverage, interactions,
+        Parses the log file of simulation set to extract temperature, coverage, energy terms,
         and lattice dimensions for all simulations in the set.
         
         Raises
@@ -187,7 +187,7 @@ class SimulationSet:
                 'n_adsorbates': entry[3][0],
                 'temperature': entry[4],  # K
                 'coverage': entry[3][0] / (entry[2][0] * entry[2][1]),
-                'interactions': entry[5][1:]
+                'energy_terms': entry[5][1:]
                })
 
     def clear_cache(self, target='all', simulations=None, verbose=False):
