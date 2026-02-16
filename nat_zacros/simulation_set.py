@@ -68,13 +68,13 @@ class SimulationSet:
     """
 
     def __init__(self, data_path, 
-                 log_file='jobs.log', 
-#                 results_dir='results', 
-                 simset_dir='data', 
-                 trajs_cache_sfx='trajs.pkl',
-                 en_file_sfx='energy.dat', 
-                 rdf_file_sfx='rdf.dat', 
-                 acc_file_sfx='accessibility.dat'):
+                 log_file           ='jobs.log', 
+                 simset_dir         ='data', 
+                 traj_dir_pfx       ='traj',
+                 trajs_cache_sfx    ='trajs.pkl',
+                 en_file_sfx        ='energy.dat', 
+                 rdf_file_sfx       ='rdf.dat', 
+                 acc_file_sfx       ='accessibility.dat'):
         """
         Initialize a SimulationSet.
         
@@ -89,6 +89,9 @@ class SimulationSet:
 #            Name of the subdirectory for storing results (default: 'results')
         simset_dir : str, optional
             Name of the subdirectory containing simulations (default: 'data')
+        traj_dir_pfx : str, optional
+            Prefix for trajectory directories (default: 'traj').
+             Trajectory directories should be named like 'traj_0', 'traj_1', etc
         trajs_cache_sfx : str, optional
             Suffix for trajectory cache files (default: 'trajs.pkl').
         en_file_sfx : str, optional
@@ -119,12 +122,11 @@ class SimulationSet:
         self.data_path          = Path(data_path)
         self.log_file           = log_file
         self.parallel           = True              # default parallel loading behavior
-#        self.results_dir        = results_dir
         self.simset_dir         = simset_dir
+        self.traj_dir_pfx       = traj_dir_pfx
         self.verbose            = False             # default verbosity
-        self.simulations        = []
 
-        # Validate if simulation set directory exists
+        # Try to untar simulations if simulation set directory doesn't exist
         if not (self.data_path / self.simset_dir).exists():
             # untar jobs directory
             tgz_file = self.data_path / (self.simset_dir + '.tgz')

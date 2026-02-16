@@ -91,9 +91,6 @@ class State:
         if dirname is not None:
             self.folder = str(Path(dirname))
             self.load()
-        if dirname is not None:
-            self.folder = str(Path(dirname))
-            self.load()
 
 
     def load(self, idx=0):

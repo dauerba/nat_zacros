@@ -66,14 +66,7 @@ class Trajectory:
         self.states = []
         self.times = []
         self.energies = []
-        #
-
-        # self.folder = Path(dirname) if dirname else None
-        # The line above caused a compatibility problem with pickle
-        # Path objects are not always picklable in all environments
-        # Convert to string for safety
-        #
-        self.folder = str(Path(dirname)) if dirname else None
+        self.folder = Path(dirname) if dirname else None
         
     def get_energy_vs_time(self):
         """

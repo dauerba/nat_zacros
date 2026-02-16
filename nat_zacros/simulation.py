@@ -54,7 +54,8 @@ class Simulation:
 
     def __init__(self, dir, 
                  metadata=None,
-                 lattice_dims=None, n_ads=None, temperature=None, energy_terms=None):
+                 lattice_dims=None, n_ads=None, temperature=None, energy_terms=None,
+                 traj_dir_pfx='traj'):
         """
         Initialize a simulation.
         
@@ -75,38 +76,31 @@ class Simulation:
             Temperature in Kelvin (default: None)
         energy_terms : list, optional
             List of energy terms (default: None)
+        traj_dir_pfx : str, optional
+            Prefix for trajectory directories (default: 'traj').
+             Trajectory directories should be named like 'traj_0', 'traj_1', etc
+
         """
 
         self.dir = Path(dir)
         self.is_valid = True  # Assume the simulation is valid initially
-        
+        self.traj_dir_pfx = traj_dir_pfx
+
         if metadata is not None:
-            self.lattice_dims = metadata['lattice_dimensions']
-            self.n_ads = metadata['n_adsorbates']
-            self.temperature = metadata['temperature']
-            self.energy_terms = metadata['energy_terms']
+            self.metadata = metadata
+        else:
+            self.metadata = {}
 
         args_ok = True
-        if lattice_dims is not None:
-            self.lattice_dims = lattice_dims
-        if self.lattice_dims is None:
-            print(' Lattice dimensions undefined. Use lattice_dim argument when initializing.')
-            args_ok = False
-        if n_ads is not None:
-            self.n_ads = n_ads
-        if self.lattice_dims is None:
-            print(' Number of adsorbates undefined. Use n_ads argument when initializing.')
-            args_ok = False
-        if temperature is not None:
-            self.temperature = temperature
-        if self.temperature is None:
-            print(' Temperature undefined. Use temperature argument when initializing.')
-            args_ok = False
-        if energy_terms is not None:
-            self.energy_terms = energy_terms
-        if self.energy_terms is None:
-            print(' Energy terms undefined. Use energy_terms argument when initializing.')
-            args_ok = False
+        args = [lattice_dims, n_ads, temperature, energy_terms]
+        keys = ['lattice_dimensions', 'n_adsorbates', 'temperature', 'energy_terms']
+
+        for arg, key in zip(args, keys):
+            if arg is not None:
+                self.metadata[key] = arg
+            if key not in self.metadata:
+                print(f" {key.replace('_', ' ').capitalize()} undefined.")
+                args_ok = False
 
         if not args_ok:
             raise Exception("Stopping execution")
@@ -121,23 +115,21 @@ class Simulation:
             # Auto-detect trajectory directories
             self.traj_dirs = sorted([
                 d for d in self.dir.iterdir() 
-                if d.is_dir() and d.name.startswith('traj_')
+                if d.is_dir() and d.name.startswith(self.traj_dir_pfx + '_')
             ])
         
             if len(self.traj_dirs) == 0:
-                print(f"No trajectory directories (traj_*) found in {self.dir}")
+                print(f"No trajectory directories ({self.traj_dir_pfx}_*) found in {self.dir}")
                 self.is_valid = False
             
             else:
-                
                 # Create lattice from first trajectory
                 self.lattice = Lattice(self.traj_dirs[0])
                 if not self.lattice.is_defined:
                     print(f"Cannot load lattice data for simulation {self.dir.name}")
                     self.is_valid = False
                 else:
-                
-                    # Initialize trajectory list (filled by load)
+                    # Initialize trajectory list
                     self.trajectories = []
         
 
