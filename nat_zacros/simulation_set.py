@@ -648,10 +648,9 @@ class SimulationSet:
         md_to_load = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
         for md in md_to_load:
             sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
-            sim = Simulation(sim_folder, metadata=md, log_file=self.log_file, results_dirname=self.results_dir)
+            sim = Simulation(sim_folder, metadata=md, traj_dir_pfx=self.traj_dir_pfx)
             sim.load(target=self._cache_files[target], workers=workers, verbose=verbose)  # Load simulation data
             self.simulations.append(sim)
-
 
     def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
         """Plot ensemble-averaged energy vs time for the loaded simulations.

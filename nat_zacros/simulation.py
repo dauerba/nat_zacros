@@ -5,8 +5,6 @@ This module provides a high-level interface for loading, caching, and analyzing
 collections of trajectories from a single Zacros simulation.
 """
 
-import json
-import pickle
 import numpy as np
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
@@ -133,30 +131,39 @@ class Simulation:
                     self.trajectories = []
         
 
-    def _load_single_trajectory(self, traj_dir):
+    def _load_single_trajectory(self, traj_dir, target='trajs', verbose=False):
         """
         Helper function for parallel trajectory loading.
         Parameters
         ----------
         traj_dir : Path
             Directory containing trajectory data
+        target : str, optional
+            Target data to load (default: 'trajs')
+        verbose : bool, optional
+            If True, print verbose output.
         Returns
         -------
         trajectory
             Trajectory object
         """
 
-        traj = Trajectory(self.lattice, traj_dir)
-        traj.load()
+        traj = Trajectory(traj_dir, self.lattice)
+        traj.load(target=target, verbose=verbose)
         return traj
 
-    def _load_trajectories_parallel(self, workers=None):
+    def _load_trajectories_parallel(self, target='trajs', workers=None, verbose=False):
         """
         Load multiple trajectories in parallel.
         Parameters
         ----------
+        target : str, optional
+            Target data to load (default: 'trajs')
         workers : int, optional
             Number of parallel workers. If None, uses all available cores.
+        verbose : bool, optional
+            If True, print verbose output.
+            
         Returns
         -------
         list of trajectories
@@ -169,16 +176,12 @@ class Simulation:
             workers = mp.cpu_count()
 
         with ProcessPoolExecutor(max_workers=workers) as executor:
-            trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs))
+            trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs, 
+                                      target=target, verbose=verbose))
 
         return trajs
 
-    # WARNING: need to revise or eliminate.
-    # This function is currently called from SimulationSet do do loading
-    # consider moving all loading to SimulationSet and eliminating this function from Simulation class
-    #,will we create Simulation objects from SimulationSet?
-
-    def load(self, target='trajs', workers=mp.cpu_count(), verbose=False):
+    def load(self, target='trajs.pkl', workers=mp.cpu_count(), verbose=False):
         """
         Load trajectory data with caching support.
 
@@ -194,22 +197,7 @@ class Simulation:
         """
 
         # Determine cache file path and extension
-        print(f"Loading simulation {self.metadata['simulation_number']} with target '{target}'")
-        if target is not None:
-            # if target not in nz_cache_files:
-            #     raise ValueError(f"Unsupported cache target: {target}. Supported targets: {list(nz_cache_files.keys())}")
-            
-            # suffix, ext = nz_cache_files[target]
-            cache_file = self.results_dir / f"{self.metadata['simulation_number']}{target}"
-
-            # Try loading from cache
-            if cache_file.exists():
-                if verbose: print(f"Loading {target} from cache: {cache_file.name}")
-
-                if cache_file.suffix == '.pkl':
-                    with open(cache_file, 'rb') as f:
-                        self.trajectories = pickle.load(f)
-                    return
+        print(f"Loading simulation {self.dir.name} with target '{target}'")
 
         # Load trajectories from files
         if verbose:
@@ -218,28 +206,15 @@ class Simulation:
 
         if workers is not None:
             # Use parallel loading
-            self.trajectories = self._load_trajectories_parallel(workers=workers)
+            self.trajectories = self._load_trajectories_parallel(target=target, workers=workers, verbose=verbose)
         else:
             # Sequential loading
             self.trajectories = []
             for traj_dir in self.traj_dirs:
-                self.trajectories.append(self._load_single_trajectory(traj_dir))
+                self.trajectories.append(self._load_single_trajectory(traj_dir, target=target, verbose=verbose))
         if verbose:
             print(f"Loaded {len(self.trajectories)} trajectories")
-            print(f"  States per trajectory: {len(self.trajectories[0].states)}")
             print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
-
-        # Save to cache
-        if target is not None:
-            # suffix, ext = nz_cache_files[target]
-            if verbose: print(f"Saving to cache: {cache_file}")
-
-            if cache_file.suffix == '.pkl':
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(self.trajectories, f)
-
-            size_mb = cache_file.stat().st_size / 1024**2
-            if verbose: print(f"Cache saved: {size_mb:.1f} MB")
 
 
     def get_g_ref(self, r_max=None, dr=0.1):
