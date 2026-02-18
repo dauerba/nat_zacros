@@ -52,7 +52,7 @@ class Trajectory:
         Calculate radial distribution function
     """
     
-    def __init__(self, dir, lattice, trajs_cache_sfx='trajs.pkl'):
+    def __init__(self, dir, lattice, cache_file='traj.pkl'):
         """
         Initialize trajectory with lattice and optional data folder.
         
@@ -64,15 +64,12 @@ class Trajectory:
             Directory containing history_output.txt
         """
 
-        self._cache_files = {
-            'trajs':  trajs_cache_sfx,
-        }
-
         self.dir = Path(dir)
         self.lattice = lattice
         self.states = []
         self.times = []
         self.energies = []
+        self.cache_file = self.dir / cache_file
         
     def get_energy_vs_time(self):
         """
@@ -87,129 +84,45 @@ class Trajectory:
         """
         return self.times, self.energies
       
-    def load(self, target='trajs', workers=mp.cpu_count(), verbose=False):
-        """
-        Load trajectory data with caching support.
-
-        Parameters
-        ----------
-        target : str or None, default 'trajs'
-            Specifies the type of data to load. Currently only 'trajs' is supported.
-        workers : int or None, default mp.cpu_count()
-            Number of parallel workers to use for loading.
-            If None, load sequentially.
-        verbose : bool, default False
-            If True, print detailed loading information.
-        """
-
-        # Determine cache file path and extension
-        print(f"Loading simulation {self.metadata['simulation_number']} with target '{target}'")
-        if target is not None:
-            # if target not in nz_cache_files:
-            #     raise ValueError(f"Unsupported cache target: {target}. Supported targets: {list(nz_cache_files.keys())}")
-            
-            # suffix, ext = nz_cache_files[target]
-            cache_file = self.results_dir / f"{self.metadata['simulation_number']}{target}"
-
-            # Try loading from cache
-            if cache_file.exists():
-                if verbose: print(f"Loading {target} from cache: {cache_file.name}")
-
-                if cache_file.suffix == '.pkl':
-                    with open(cache_file, 'rb') as f:
-                        self.trajectories = pickle.load(f)
-                    return
-
-        # Load trajectories from files
-        if verbose:
-            print(f"Loading {len(self.traj_dirs)} trajectories...")
-            print(f"  Loading mode: {'sequential' if workers is None else 'parallel with ' + str(workers) + ' workers'}")
-
-        if workers is not None:
-            # Use parallel loading
-            self.trajectories = self._load_trajectories_parallel(workers=workers)
-        else:
-            # Sequential loading
-            self.trajectories = []
-            for traj_dir in self.traj_dirs:
-                self.trajectories.append(self._load_single_trajectory(traj_dir))
-        if verbose:
-            print(f"Loaded {len(self.trajectories)} trajectories")
-            print(f"  States per trajectory: {len(self.trajectories[0].states)}")
-            print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
-
-        # Save to cache
-        if target is not None:
-            # suffix, ext = nz_cache_files[target]
-            if verbose: print(f"Saving to cache: {cache_file}")
-
-            if cache_file.suffix == '.pkl':
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(self.trajectories, f)
-
-            size_mb = cache_file.stat().st_size / 1024**2
-            if verbose: print(f"Cache saved: {size_mb:.1f} MB")
-
                 
-    def load(self, start=0, end=None, step=1, target='trajs', verbose=False):
+    def load(self, cache=True, verbose=False):
         """
         Load states from history_output.txt.
 
         Parameters
         ----------
-        start : int, default 0
-            Start index for loading states
-        end : int, optional
-            End index for loading states
-        step : int, default 1
-            Step size for loading states
-        target : str or None, default 'trajs'
-            Specifies the type of data to load. Currently only 'trajs' is supported.
+        cache : bool, default True
+            If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
+            If False, load from raw simulation data.
         verbose : bool, default False
             If True, print detailed loading information.
         """
 
-        if verbose:
-            print(f"Loading trajectory from {self.dir} with target '{target}'")
+        # Try loading from cache
+        if cache:
 
-        # Determine cache file path and extension
-        if target is not None:
-            cache_file = self.dir / f"{target}"
-
-            # Try loading from cache
-            if cache_file.exists():
-                if verbose: print(f"Loading {target} from cache: {cache_file.name}")
-
-                if cache_file.suffix == '.pkl':
-                    with open(cache_file, 'rb') as f:
-                        self.trajectories = pickle.load(f)
-                    return
-
+            if self.cache_file.exists():
+                with open(self.cache_file, 'rb') as f:
+                    self.states, self.times, self.energies = pickle.load(f)
+                if verbose:
+                    size_mb = self.cache_file.stat().st_size / 1024**2
+                    print(f"Loaded trajectory {self.dir.name} with {len(self.states)} states from cache ({size_mb:.1f} MB).")
+                return
 
         try:
             # Single-pass streaming parse (fast)
             nsites = len(self.lattice)
 
             # Read in a trajectory from history_output.txt
-            with open(self.folder / 'history_output.txt', 'r') as f: 
+            with open(self.dir / 'history_output.txt', 'r') as f: 
                 content = f.readlines()
 
             # Count total number of states in trajectory
             n_states = sum(line.lstrip().startswith('configuration') for line in content)
 
-            if end is None:
-                end = n_states - 1
-            if end > n_states-1 or end < 0:
-                print(f'Warning: end index {end} is out of range (0 to {n_states-1}), adjusting to {n_states-1}.')
-                end = n_states - 1
-            if start > n_states-1 or start < 0:
-                print(f'Warning: start index {start} is out of range (0 to {n_states-1}), adjusting to 0.')
-                start = 0
-
-            n_keep = max(0, (end + 1 - start + (step - 1)) // step)
-            self.times = np.empty(n_keep, dtype=float)
-            self.energies = np.empty(n_keep, dtype=float)
-            self.states = [None] * n_keep
+            self.times = np.empty(n_states, dtype=float)
+            self.energies = np.empty(n_states, dtype=float)
+            self.states = [None] * n_states
 
             # Find the first configuration line
             pos = 0
@@ -227,25 +140,20 @@ class Trajectory:
             if block_size != expected_block_size:
                 raise ValueError(f'block size: {block_size}, expected {expected_block_size}.')
 
-            k = 0
-            idx = -1
-            while pos < len(content):
+
+            for k in range(n_states):
+
+                pos = 6 + k * block_size
                 line = content[pos]
 
-                idx += 1
                 try:
                     parts = line.split()
                     time = float(parts[3])
                     energy = float(parts[5])
                 except (ValueError, IndexError):
-                    raise ValueError(f'{str(folder_p)}: Failed to parse line: {line.strip()}')
+                    raise ValueError(f'{str(self.dir.name)}: Failed to parse line: {line.strip()}')
 
-                if idx < start or idx > end or ((idx - start) % step != 0):
-                    pos += block_size  # Skip header + nsites data lines
-                    continue
-
-                st = State(self.lattice)
-                st.folder = str(folder_p)
+                st = State(self.lattice, dirname=self.dir)
 
                 for site in range(nsites):
                     site_line = content[pos + 1 + site]
@@ -254,20 +162,24 @@ class Trajectory:
                     st.occupation[site] = int(p[2])
                     st.dentation[site] = int(p[3])
 
-                pos += block_size  # Move to next configuration block
                 self.states[k] = st
                 self.times[k] = time
                 self.energies[k] = energy
-                k += 1
 
-            # Trim in case of mismatch
-            self.states = self.states[:k]
-            self.times = self.times[:k]
-            self.energies = self.energies[:k]
+            # Save to cache
+            if cache:
+                with open(self.cache_file, 'wb') as f:
+                    pickle.dump([self.states, self.times, self.energies], f)
+                    size_mb = self.cache_file.stat().st_size / 1024**2
+
+            if verbose:
+                print(f"Loaded {f' and cached ({size_mb:.1f} MB)' if cache else ''} trajectory {self.dir.name} with {len(self.states)} states.")
 
         except Exception as e:
-            print(f'Error loading trajectory from {str(folder_p)}: {e}')
-        
+            print(f'Error loading trajectory from {str(self.dir)}: {e}')
+
+
+
         
     # ==========================================================================
     # RDF (Radial Distribution Function) Analysis Methods

@@ -131,15 +131,16 @@ class Simulation:
                     self.trajectories = []
         
 
-    def _load_single_trajectory(self, traj_dir, target='trajs', verbose=False):
+    def _load_single_trajectory(self, traj_dir, cache=True, verbose=False):
         """
         Helper function for parallel trajectory loading.
         Parameters
         ----------
         traj_dir : Path
             Directory containing trajectory data
-        target : str, optional
-            Target data to load (default: 'trajs')
+        cache : bool, default True
+            If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
+            If False, load from raw simulation data.
         verbose : bool, optional
             If True, print verbose output.
         Returns
@@ -149,15 +150,21 @@ class Simulation:
         """
 
         traj = Trajectory(traj_dir, self.lattice)
-        traj.load(target=target, verbose=verbose)
+        traj.load(cache=cache, verbose=verbose)
         return traj
 
-    def _load_trajectories_parallel(self, target='trajs', workers=None, verbose=False):
+    def _load_trajectories_parallel(self, cache=True, workers=None, verbose=False):
         """
         Load multiple trajectories in parallel.
         Parameters
         ----------
-        target : str, optional
+        cache : bool, default True
+            If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
+            If False, load from raw simulation data.
+        workers : int, optional
+            Number of parallel workers. If None, uses all available cores.
+        verbose : bool, optional
+            If True, print verbose output.
             Target data to load (default: 'trajs')
         workers : int, optional
             Number of parallel workers. If None, uses all available cores.
@@ -177,18 +184,19 @@ class Simulation:
 
         with ProcessPoolExecutor(max_workers=workers) as executor:
             trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs, 
-                                      target=target, verbose=verbose))
+                                      [cache]*len(self.traj_dirs), [verbose]*len(self.traj_dirs)))
 
         return trajs
 
-    def load(self, target='trajs.pkl', workers=mp.cpu_count(), verbose=False):
+    def load(self, cache=True, workers=mp.cpu_count(), verbose=False):
         """
         Load trajectory data with caching support.
 
         Parameters
         ----------
-        target : str or None, default 'trajs'
-            Specifies the type of data to load. Currently only 'trajs' is supported.
+        cache : bool, default True
+            If True, load cached trajectory data if available; cache trajectory data if not already cached.
+            If False, load from raw simulation data.
         workers : int or None, default mp.cpu_count()
             Number of parallel workers to use for loading.
             If None, load sequentially.
@@ -197,7 +205,7 @@ class Simulation:
         """
 
         # Determine cache file path and extension
-        print(f"Loading simulation {self.dir.name} with target '{target}'")
+        print(f"Loading simulation {self.dir.name} with caching {'enabled' if cache else 'disabled'}...")
 
         # Load trajectories from files
         if verbose:
@@ -206,12 +214,12 @@ class Simulation:
 
         if workers is not None:
             # Use parallel loading
-            self.trajectories = self._load_trajectories_parallel(target=target, workers=workers, verbose=verbose)
+            self.trajectories = self._load_trajectories_parallel(cache=cache, workers=workers, verbose=verbose)
         else:
             # Sequential loading
             self.trajectories = []
             for traj_dir in self.traj_dirs:
-                self.trajectories.append(self._load_single_trajectory(traj_dir, target=target, verbose=verbose))
+                self.trajectories.append(self._load_single_trajectory(traj_dir, cache=cache, verbose=verbose))
         if verbose:
             print(f"Loaded {len(self.trajectories)} trajectories")
             print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
