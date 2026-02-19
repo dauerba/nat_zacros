@@ -151,7 +151,7 @@ To validate improvements, benchmark with this test code:
 import time
 
 # Clear cache first
-simset.clear_cache(target='trajs')
+simset.clear_traj_cache()
 
 # Test sequential hidden
 start = time.time()

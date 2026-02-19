@@ -97,6 +97,14 @@ This package is part of the O_Pt111 project for studying oxygen adsorption on Pt
 - Primary: akandra (pending repository transfer)
 - Developer: dauerba (refactoring and packaging)
 
+## Recent API changes (unreleased)
+
+- Added `SimulationSet.clear_traj_cache()` — removes internal trajectory cache files (`traj.pkl` and aggregated `<sim>_trajs_eq.pkl`) used only to speed loading.
+- Added `SimulationSet.clear_results()` — removes user-visible result files (`energy`, `rdf`, `accessibility`, `gref`).
+- Deprecated `SimulationSet.clear_cache()` — kept as a compatibility wrapper that forwards to the new methods and emits a DeprecationWarning.
+- Unit tests added for the new cache/result-clearing behavior.
+- Updated example notebooks to use `clear_traj_cache()` / `clear_results()` instead of the deprecated API.
+
 ## License
 
 MIT License - see LICENSE file for details

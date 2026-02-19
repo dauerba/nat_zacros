@@ -14,6 +14,7 @@ from matplotlib.ticker import MultipleLocator, FuncFormatter
 import numpy as np
 from lmfit import Model
 import multiprocessing as mp
+import warnings
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import tarfile
@@ -184,91 +185,141 @@ class SimulationSet:
                 'energy_terms': entry[5][1:]
                })
 
-    def clear_cache(self, target='all', simulations=None, verbose=False):
+    def clear_cache(self, target='trajs', simulations=None, verbose=False):
         """
-        Clear cached data for simulations in the set for the specified cache type.
+        Deprecated compatibility wrapper.
+
+        This method is deprecated — use `clear_traj_cache()` to remove internal
+        trajectory cache files (used only to speed loading) and `clear_results()`
+        to remove user-visible result files (energy, rdf, accessibility, gref).
+
+        Behaviour: delegates to the new methods based on `target`.
+        """
+        warnings.warn(
+            "SimulationSet.clear_cache() is deprecated — use clear_traj_cache() or clear_results()",
+            DeprecationWarning,
+        )
+
+        # Allow forwarding a list of targets
+        if isinstance(target, list):
+            if 'trajs' in target:
+                self.clear_traj_cache(simulations=simulations, verbose=verbose)
+            # forward remaining targets (if any) to clear_results
+            remaining = [t for t in target if t != 'trajs']
+            if remaining:
+                self.clear_results(target=remaining, simulations=simulations, verbose=verbose)
+            return None
+
+        # Single-target forwarding
+        if target == 'trajs':
+            return self.clear_traj_cache(simulations=simulations, verbose=verbose)
+        else:
+            return self.clear_results(target=target, simulations=simulations, verbose=verbose)
+
+
+    def clear_traj_cache(self, simulations=None, verbose=False):
+        """
+        Remove internal trajectory cache files that speed up loading.
+
+        This deletes per-trajectory `traj.pkl` files inside each `traj_*` folder
+        and the aggregated `<sim>_trajs_eq.pkl` file in `results_dir`.
+
         Parameters
         ----------
-        target : str, list of strings, default 'all'
-            If str, clear cache of specified file format; if str = 'all', clear all cache types.
-            If list of strings, clear cache for each specified file format.
-        simulations : list of int or None, default None
-            If list of int, clear cache only for specified simulation numbers. If None, clear for all simulation set.
-        verbose : bool, default False
-            If True, print detailed clearing information.
-        
+        simulations : list[int] or None
+            Simulation numbers to clear; None => all simulations in set.
+        verbose : bool
+            Print each deleted file when True.
         """
+        sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
 
-        if type(target) is list:
-            formats_to_clear = target
-        elif type(target) is str:
-            if target == 'all':
-                formats_to_clear = self._cache_files.keys()
-            else:
-                formats_to_clear = [target]
+        for md in sims_to_clear:
+            sim_num = str(md['simulation_number'])
+            sim_folder = Path(self.data_path) / self.simset_dir / sim_num
 
-        for format in formats_to_clear:
-            if format not in self._cache_files:
-                print(f"Unknown cache format '{format}' specified. Skipping.\n")
-                continue
+            # Delete per-trajectory cache files
+            if sim_folder.exists():
+                for d in sim_folder.iterdir():
+                    if d.is_dir() and d.name.startswith(self.traj_dir_pfx + '_'):
+                        cf = d / 'traj.pkl'
+                        if cf.exists():
+                            cf.unlink()
+                            if verbose:
+                                print(f"Deleted trajectory cache: {cf}")
 
-            sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
-            for md in sims_to_clear:
-                cache_file = self.data_path / self.results_dir / \
-                            f"{md['simulation_number']}_{self._cache_files[format]}"
-                if cache_file.exists():
-                    cache_file.unlink()
-                    if verbose:
-                        print(f"  Cache file {cache_file.name} deleted.")
+            # Delete aggregated trajectory cache in results directory
+            agg = Path(self.data_path) / self.results_dir / f"{sim_num}_trajs_eq.pkl"
+            if agg.exists():
+                agg.unlink()
+                if verbose:
+                    print(f"Deleted aggregated trajs cache: {agg}")
 
-            if simulations is None:
-                print(f"'{format}' cache is cleared for all simulations in the set.\n")
-            else:
-                print(f"'{format}' cache is cleared for simulations: {simulations}\n")
+        if simulations is None:
+            print("'trajs' cache cleared for all simulations.")
+        else:
+            print(f"'trajs' cache cleared for simulations: {simulations}")
+
+        return None
 
 
     def clear_results(self, target='all', simulations=None, verbose=False):
         """
-        Clear results files for simulations in the set for the specified file format.
+        Clear user-visible result files for the simulation set.
+
+        Supported targets: 'energy', 'rdf', 'accessibility', 'gref', or 'all'.
         Parameters
         ----------
-        target : str, list of strings, default 'all'
-            If str, clear results of specified file format; if str = 'all', clear all results types.
-            If list of strings, clear results for each specified file format.
-        simulations : list of int or None, default None
-            If list of int, clear results only for specified simulation numbers. If None, clear for all simulation set.
-        verbose : bool, default False   
-            If True, print detailed clearing information.
-        
+        target : str or list, default 'all'
+            Which result types to clear.
+        simulations : list[int] or None
+            If provided, restrict clearing to these simulation numbers; None => all.
+        verbose : bool
+            Print deleted filenames when True.
         """
+        valid_keys = set(self._results_files.keys()) | {'gref'}
 
-        if type(target) is list:
+        # Normalize target
+        if isinstance(target, list):
             formats_to_clear = target
-        elif type(target) is str:
-            if target == 'all':
-                formats_to_clear = self._results_files.keys()
-            else:
-                formats_to_clear = [target]
+        elif isinstance(target, str):
+            formats_to_clear = list(valid_keys) if target == 'all' else [target]
+        else:
+            raise TypeError("target must be str or list of str")
 
-        for format in formats_to_clear:
-            if format not in self._results_files:
-                print(f"Unknown results format '{format}' specified. Skipping.\n")
-                continue
+        # Validate
+        formats_to_clear = [f for f in formats_to_clear if f in valid_keys]
 
-            sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
+        sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
+
+        for fmt in formats_to_clear:
             for md in sims_to_clear:
-                results_file = self.data_path / self.results_dir / \
-                            f"{md['simulation_number']}_{self._results_files[format]}"
-                if results_file.exists():
-                    results_file.unlink()
-                    if verbose:
-                        print(f"  Results file {results_file.name} deleted.")
+                sim_num = str(md['simulation_number'])
+
+                if fmt == 'gref':
+                    candidates = [
+                        Path(self.data_path) / self.results_dir / f"{sim_num}_gref.pkl",
+                        Path(self.data_path) / self.results_dir / 'gref.pkl',
+                        Path(self.data_path) / self.results_dir / sim_num / 'gref.pkl'
+                    ]
+                else:
+                    fname = self._results_files[fmt]
+                    candidates = [
+                        Path(self.data_path) / self.results_dir / f"{sim_num}_{fname}",
+                        Path(self.data_path) / self.results_dir / sim_num / fname
+                    ]
+
+                for cf in candidates:
+                    if cf.exists():
+                        cf.unlink()
+                        if verbose:
+                            print(f"Deleted results file: {cf}")
 
             if simulations is None:
-                print(f"'{format}' results are cleared for all simulations in the set.\n")
+                print(f"'{fmt}' results cleared for all simulations.")
             else:
-                print(f"'{format}' results are cleared for simulations: {simulations}\n")
+                print(f"'{fmt}' results cleared for simulations: {simulations}")
 
+        return None
     def find_equilibrium_fraction_fit(self, energies_vs_time, threshold=0.01, min_equilibrium_points=10, 
                                        a0_fixed=True, a0_guess_points=10):
         """
