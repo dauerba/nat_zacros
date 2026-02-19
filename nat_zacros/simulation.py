@@ -387,7 +387,7 @@ class Simulation:
         
         return accessibility, frequency_avg, frequency_std
     
-    def get_ensemble_energy_vs_time(self, n_bins=100):
+    def get_ensemble_energy_vs_time(self, n_bins=100, file=None):
         """
         Compute ensemble-averaged energy as function of time.
         
@@ -406,6 +406,9 @@ class Simulation:
         ----------
         n_bins : int, default 100
             Number of time bins for averaging
+        file : str or Path, optional    
+            Path to save the energy vs time data (time, energy_avg, energy_std).
+            If None, data will not be saved to file (default).
         
         Returns
         -------
@@ -443,7 +446,7 @@ class Simulation:
         """
         if len(self.trajectories) == 0:
             raise RuntimeError(
-                "No trajectories loaded. Call load_trajectories() first."
+                "No trajectories loaded. Call load() first."
             )
         
         # Find common time range across all trajectories
@@ -484,7 +487,14 @@ class Simulation:
         # Average across trajectories with equal weighting
         energy_avg = np.nanmean(energy_hists, axis=0)
         energy_std = np.nanstd(energy_hists, axis=0)  # Trajectory-to-trajectory variation
-        
+
+        # Save energy vs time data to file
+        if file is not None:
+            Path(file).parent.mkdir(parents=True, exist_ok=True)
+            np.savetxt(file, 
+                np.column_stack((time_centers, energy_avg, energy_std)), 
+                header=f'Parameters: n_bins = {n_bins}\nTime_s Energy_eV Energy_std_eV')
+
         return time_centers, energy_avg, energy_std
     
     def __repr__(self):

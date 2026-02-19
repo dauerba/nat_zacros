@@ -40,8 +40,6 @@ class SimulationSet:
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
         Simulation metadata (temperature, coverage, energy terms, etc.)
-    parallel : bool
-        Whether to use parallel loading of simulations.
     results_dir : str
         subdirectory containing simulation results (default: 'results')
     simset_dir : str
@@ -70,10 +68,11 @@ class SimulationSet:
     def __init__(self, data_path, 
                  log_file           ='jobs.log', 
                  simset_dir         ='data', 
+                 results_dir        ='results', 
                  traj_dir_pfx       ='traj',
-                 en_file_sfx        ='energy.dat', 
-                 rdf_file_sfx       ='rdf.dat', 
-                 acc_file_sfx       ='accessibility.dat'):
+                 en_file            ='energy.dat', 
+                 rdf_file           ='rdf.dat', 
+                 acc_file           ='accessibility.dat'):
         """
         Initialize a SimulationSet.
         
@@ -84,21 +83,21 @@ class SimulationSet:
             This directory should contain jobs.log and the simulations subdirectory
         log_file : str, optional
             Name of the log file (default: 'jobs.log')
-#        results_dir : str, optional
-#            Name of the subdirectory for storing results (default: 'results')
+        results_dir : str, optional
+            Name of the subdirectory for storing results (default: 'results')
         simset_dir : str, optional
             Name of the subdirectory containing simulations (default: 'data')
         traj_dir_pfx : str, optional
             Prefix for trajectory directories (default: 'traj').
              Trajectory directories should be named like 'traj_0', 'traj_1', etc
-        en_file_sfx : str, optional
-            Suffix for energy data files (default: 'energy.dat').
+        en_file : str, optional
+            Name of the energy data file (default: 'energy.dat').
             If None, energy data files are not created.
-        rdf_file_sfx : str, optional
-            Suffix for RDF data files (default: 'rdf.dat').
+        rdf_file : str, optional
+            Name of the RDF data file (default: 'rdf.dat').
             If None, RDF data files are not created.
-        acc_file_sfx : str, optional
-            Suffix for accessibility data files (default: 'accessibility.dat').
+        acc_file : str, optional
+            Name of the accessibility data file (default: 'accessibility.dat').
             If None, accessibility data files are not created.
         """
         
@@ -107,14 +106,14 @@ class SimulationSet:
             raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
 
         self._results_files = {
-            'energy': en_file_sfx,
-            'rdf': rdf_file_sfx,
-            'accessibility': acc_file_sfx,
+            'energy': en_file,
+            'rdf': rdf_file,
+            'accessibility': acc_file,
         }
 
         self.data_path          = Path(data_path)
         self.log_file           = log_file
-        self.parallel           = True              # default parallel loading behavior
+        self.results_dir        = results_dir
         self.simset_dir         = simset_dir
         self.traj_dir_pfx       = traj_dir_pfx
         self.verbose            = False             # default verbosity
@@ -421,8 +420,9 @@ class SimulationSet:
 
             n_bins_file = 0
             if self._results_files['energy'] is not None:
-                en_file = Path(self.data_path) / self.results_dir / \
-                            f"{sim.metadata['simulation_number']}_{self._results_files['energy']}"
+                en_file = Path(self.data_path) / self.results_dir  /\
+                            f"{sim.metadata['simulation_number']}" /\
+                            f"{self._results_files['energy']}"
             else:
                 en_file = None
 
@@ -442,14 +442,7 @@ class SimulationSet:
 
             if n_bins != n_bins_file:
                 # Recalculate averages
-                times, energies, energies_std = sim.get_ensemble_energy_vs_time(n_bins=n_bins)
-                # Save energy vs time data to file
-                try:
-                    np.savetxt(en_file, 
-                        np.column_stack((times, energies, energies_std)), 
-                        header=f'Parameters: n_bins = {n_bins}\nTime_s Energy_eV Energy_std_eV')
-                except:
-                    pass
+                times, energies, energies_std = sim.get_ensemble_energy_vs_time(n_bins=n_bins, file=en_file)
         
             results.append((times, energies, energies_std))
 
