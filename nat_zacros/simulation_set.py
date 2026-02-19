@@ -71,7 +71,6 @@ class SimulationSet:
                  log_file           ='jobs.log', 
                  simset_dir         ='data', 
                  traj_dir_pfx       ='traj',
-                 trajs_cache_sfx    ='trajs.pkl',
                  en_file_sfx        ='energy.dat', 
                  rdf_file_sfx       ='rdf.dat', 
                  acc_file_sfx       ='accessibility.dat'):
@@ -92,8 +91,6 @@ class SimulationSet:
         traj_dir_pfx : str, optional
             Prefix for trajectory directories (default: 'traj').
              Trajectory directories should be named like 'traj_0', 'traj_1', etc
-        trajs_cache_sfx : str, optional
-            Suffix for trajectory cache files (default: 'trajs.pkl').
         en_file_sfx : str, optional
             Suffix for energy data files (default: 'energy.dat').
             If None, energy data files are not created.
@@ -108,10 +105,6 @@ class SimulationSet:
         # Validate the simulation set directory exists
         if not Path(data_path).exists():
             raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
-
-        self._cache_files = {
-            'trajs':  trajs_cache_sfx,
-        }
 
         self._results_files = {
             'energy': en_file_sfx,
@@ -624,14 +617,15 @@ class SimulationSet:
 
         return results
 
-    def load(self, target='trajs', workers=mp.cpu_count(), simulations=None, verbose=False):
+    def load(self, cache=True, workers=mp.cpu_count(), simulations=None, verbose=False):
         """
         Load data for simulations in the set.
         
         Parameters
         ----------
-        target : str, default 'trajs'
-            Specifies the type of data to load (e.g., 'trajs' for trajectories).
+        cache : bool, default True
+            If True, load cached trajectory data if available; cache trajectory data if not already cached.
+            if False, load from raw simulation data.
         simulations : list of int or None, default None
             If list of int, load only specified simulation numbers. If None, load all simulations.
         verbose : bool, default False
@@ -641,15 +635,11 @@ class SimulationSet:
             If None, load serially.
         """
         
-        if target not in self._cache_files:
-            print(f"Unknown target '{target}' specified for loading. Available targets: {list(self._cache_files.keys())}")
-            return
-
         md_to_load = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
         for md in md_to_load:
             sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
             sim = Simulation(sim_folder, metadata=md, traj_dir_pfx=self.traj_dir_pfx)
-            sim.load(target=self._cache_files[target], workers=workers, verbose=verbose)  # Load simulation data
+            sim.load(cache=cache, workers=workers, verbose=verbose) 
             self.simulations.append(sim)
 
     def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):

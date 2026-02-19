@@ -68,7 +68,7 @@ class State:
             Directory containing history_output.txt. If provided,
             will automatically load the first state.
         """
-        self.folder = None
+        self.dir = Path(dirname) if dirname is not None else None
 
         # Store reference to lattice
         self.lattice = lattice
@@ -88,12 +88,8 @@ class State:
         self.occupation = np.zeros(nsites, dtype=int)
         self.dentation =  np.zeros(nsites, dtype=int)
 
-        if dirname is not None:
-            self.folder = str(Path(dirname))
-            self.load()
 
-
-    def load(self, idx=0):
+    def load(self, idx=0, verbose=False):
         """
         Read configuration from history_output.txt file.
         
@@ -101,6 +97,9 @@ class State:
         ----------
         idx : int, optional
             Index of the configuration to read (default: 0 = first state)
+            If negative, counts from the end (e.g., -1 = last state)
+        verbose : bool, optional
+            If True, print verbose output.
             
         Notes
         -----
@@ -109,12 +108,12 @@ class State:
         every lattice site.
         """
 
-        
-        # Read configuration from history_output.txt file
+        if verbose:
+            print(f"Loading state {idx} from trajectory {self.dir}")
 
-        folder_p = Path(self.folder)
+        # Read configuration from history_output.txt file
         try:
-            with open(folder_p / 'history_output.txt', 'r') as f:
+            with open(self.dir / 'history_output.txt', 'r') as f:
                 content = f.readlines()    
 
             nsites = len(self.lattice)
@@ -123,9 +122,8 @@ class State:
                 self.ads_ids[site]    = int(parts[1])
                 self.occupation[site] = int(parts[2])
                 self.dentation[site]  = int(parts[3])
-        except:
-            print(f'cannot read history_output.txt from {self.folder}')
-
+        except Exception as e:
+            print(f'Error loading a state from trajectory {str(self.dir)}: {e}')
     
 
     def get_accessibility(self):
