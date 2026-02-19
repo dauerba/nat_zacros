@@ -100,7 +100,6 @@ class Trajectory:
 
         # Try loading from cache
         if cache:
-
             if self.cache_file.exists():
                 with open(self.cache_file, 'rb') as f:
                     self.states, self.times, self.energies = pickle.load(f)

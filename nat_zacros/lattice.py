@@ -19,8 +19,8 @@ class Lattice:
         Supercell lattice vectors (unit_cell_vectors * size)
     coordinates : ndarray, shape (N, 2)
         Cartesian coordinates of all lattice sites
-    folder : str (must be str for pickle compatibility) or None
-        Directory containing lattice_input.dat and lattice_output.txt
+    folder : str (must be str for pickle cross-platform compatibility) or None
+        Directory containing lattice_input.dat and lattice_output.txt. Stored as string (not Path)
     fractional_coordinates : ndarray
         Fractional coordinates of sites within unit cell
     is_defined : bool

@@ -20,8 +20,8 @@ class State:
     ----------
     lattice : Lattice object
         Reference to the underlying surface lattice
-    folder : str (must be str for pickle compatibility) or None
-        Directory containing history_output.txt
+    folder : str (must be str for pickle cross-platform compatibility) or None
+        Directory containing history_output.txt. Stored as string (not Path)
     n_gas_species : int
         Number of gas-phase species
     gas_species_names : list of str
@@ -68,7 +68,7 @@ class State:
             Directory containing history_output.txt. If provided,
             will automatically load the first state.
         """
-        self.dir = Path(dirname) if dirname is not None else None
+        self.dir = str(dirname) if dirname is not None else None
 
         # Store reference to lattice
         self.lattice = lattice
@@ -113,7 +113,7 @@ class State:
 
         # Read configuration from history_output.txt file
         try:
-            with open(self.dir / 'history_output.txt', 'r') as f:
+            with open(Path(self.dir) / 'history_output.txt', 'r') as f:
                 content = f.readlines()    
 
             nsites = len(self.lattice)
