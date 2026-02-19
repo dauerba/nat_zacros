@@ -28,18 +28,20 @@ def _make_simset_tree(tmp_path):
         (traj0 / 'traj.pkl').write_bytes(b'cached')
         (traj1 / 'traj.pkl').write_bytes(b'cached')
 
-    # Results directory with aggregated trajs and user-visible files
-    results = root / 'results'
-    results.mkdir()
-    # aggregated trajs cache
-    (results / '1_trajs_eq.pkl').write_bytes(b'agg')
-    (results / '2_trajs_eq.pkl').write_bytes(b'agg')
-    # user-visible results
-    (results / '1_energy.dat').write_text('dummy')
-    (results / '1_rdf.dat').write_text('dummy')
-    (results / '1_accessibility.dat').write_text('dummy')
-    # gref cache variants
-    (results / 'gref.pkl').write_bytes(b'gref')
+    # Sim-specific results files (new layout)
+    for sim in (1, 2):
+        sim_dir = root / 'data' / str(sim)
+        sim_dir.mkdir(parents=True, exist_ok=True)
+        # aggregated trajs cache per-sim
+        (sim_dir / 'trajs_eq.pkl').write_bytes(b'agg')
+
+    # user-visible results for simulation 1
+    sim1 = root / 'data' / '1'
+    (sim1 / 'energy.dat').write_text('dummy')
+    (sim1 / 'rdf.dat').write_text('dummy')
+    (sim1 / 'accessibility.dat').write_text('dummy')
+    # g_ref cache (text format)
+    (sim1 / 'g_ref.dat').write_text('0.0 1.0')
 
     return root
 
@@ -50,7 +52,7 @@ def test_clear_traj_cache_removes_traj_and_agg(tmp_path):
 
     # Sanity: files exist before clearing
     assert (root / 'data' / '1' / 'traj_0' / 'traj.pkl').exists()
-    assert (root / 'results' / '1_trajs_eq.pkl').exists()
+    assert (root / 'data' / '1' / 'trajs_eq.pkl').exists()
 
     # Clear only traj caches
     simset.clear_traj_cache(simulations=[1], verbose=False)
@@ -60,8 +62,8 @@ def test_clear_traj_cache_removes_traj_and_agg(tmp_path):
     assert (root / 'data' / '2' / 'traj_0' / 'traj.pkl').exists()
 
     # Aggregated cache for sim 1 removed, sim 2 still present
-    assert not (root / 'results' / '1_trajs_eq.pkl').exists()
-    assert (root / 'results' / '2_trajs_eq.pkl').exists()
+    assert not (root / 'data' / '1' / 'trajs_eq.pkl').exists()
+    assert (root / 'data' / '2' / 'trajs_eq.pkl').exists()
 
 
 def test_clear_results_removes_user_files_and_gref(tmp_path):
@@ -69,25 +71,25 @@ def test_clear_results_removes_user_files_and_gref(tmp_path):
     simset = SimulationSet(root)
 
     # Sanity: files exist
-    assert (root / 'results' / '1_energy.dat').exists()
-    assert (root / 'results' / '1_rdf.dat').exists()
-    assert (root / 'results' / '1_accessibility.dat').exists()
-    assert (root / 'results' / 'gref.pkl').exists()
+    assert (root / 'data' / '1' / 'energy.dat').exists()
+    assert (root / 'data' / '1' / 'rdf.dat').exists()
+    assert (root / 'data' / '1' / 'accessibility.dat').exists()
+    assert (root / 'data' / '1' / 'g_ref.dat').exists()
 
     # Clear specific results (energy + gref)
     simset.clear_results(target=['energy', 'gref'], simulations=[1], verbose=False)
 
     # energy for sim 1 removed, other files untouched
-    assert not (root / 'results' / '1_energy.dat').exists()
-    assert (root / 'results' / '1_rdf.dat').exists()
-    assert (root / 'results' / '1_accessibility.dat').exists()
+    assert not (root / 'data' / '1' / 'energy.dat').exists()
+    assert (root / 'data' / '1' / 'rdf.dat').exists()
+    assert (root / 'data' / '1' / 'accessibility.dat').exists()
 
     # gref removed
-    assert not (root / 'results' / 'gref.pkl').exists()
+    assert not (root / 'data' / '1' / 'g_ref.dat').exists()
 
     # Now clear all remaining results
     simset.clear_results(target='all', verbose=False)
-    assert not (root / 'results' / '1_rdf.dat').exists()
-    assert not (root / 'results' / '1_accessibility.dat').exists()
+    assert not (root / 'data' / '1' / 'rdf.dat').exists()
+    assert not (root / 'data' / '1' / 'accessibility.dat').exists()
     # aggregated trajs are NOT part of clear_results and should still exist for sim 2
-    assert (root / 'results' / '2_trajs_eq.pkl').exists()
+    assert (root / 'data' / '2' / 'trajs_eq.pkl').exists()

@@ -222,7 +222,7 @@ class SimulationSet:
         Remove internal trajectory cache files that speed up loading.
 
         This deletes per-trajectory `traj.pkl` files inside each `traj_*` folder
-        and the aggregated `<sim>_trajs_eq.pkl` file in `results_dir`.
+        and the aggregated `trajs_eq.pkl` file in each simulation folder (under `simset_dir`).
 
         Parameters
         ----------
@@ -247,8 +247,8 @@ class SimulationSet:
                             if verbose:
                                 print(f"Deleted trajectory cache: {cf}")
 
-            # Delete aggregated trajectory cache in results directory
-            agg = Path(self.data_path) / self.results_dir / f"{sim_num}_trajs_eq.pkl"
+            # Delete aggregated trajectory cache in simulation folder (new layout)
+            agg = sim_folder / 'trajs_eq.pkl'
             if agg.exists():
                 agg.unlink()
                 if verbose:
@@ -294,19 +294,14 @@ class SimulationSet:
         for fmt in formats_to_clear:
             for md in sims_to_clear:
                 sim_num = str(md['simulation_number'])
+                sim_folder = Path(self.data_path) / self.simset_dir / sim_num
 
                 if fmt == 'gref':
-                    candidates = [
-                        Path(self.data_path) / self.results_dir / f"{sim_num}_gref.pkl",
-                        Path(self.data_path) / self.results_dir / 'gref.pkl',
-                        Path(self.data_path) / self.results_dir / sim_num / 'gref.pkl'
-                    ]
+                    # New layout stores g_ref as a text file per simulation
+                    candidates = [sim_folder / 'g_ref.dat']
                 else:
                     fname = self._results_files[fmt]
-                    candidates = [
-                        Path(self.data_path) / self.results_dir / f"{sim_num}_{fname}",
-                        Path(self.data_path) / self.results_dir / sim_num / fname
-                    ]
+                    candidates = [sim_folder / fname]
 
                 for cf in candidates:
                     if cf.exists():
@@ -470,10 +465,10 @@ class SimulationSet:
         for sim in self.simulations:
 
             n_bins_file = 0
+            # per-simulation results folder (new layout)
+            sim_folder = Path(self.data_path) / self.simset_dir / str(sim.metadata['simulation_number'])
             if self._results_files['energy'] is not None:
-                en_file = Path(self.data_path) / self.results_dir  /\
-                            f"{sim.metadata['simulation_number']}" /\
-                            f"{self._results_files['energy']}"
+                en_file = sim_folder / self._results_files['energy']
             else:
                 en_file = None
 
@@ -483,7 +478,7 @@ class SimulationSet:
                     n_bins_file = int(f.readline().split()[-1])
                     header = f.readline()  # skip header
                 times, energies, energies_std = np.loadtxt(en_file, unpack=True)
-            except: 
+            except Exception:
                 pass
                 
             if verbose:                
@@ -529,25 +524,29 @@ class SimulationSet:
         results = []
         for sim in self.simulations:
 
+            # per-simulation results folder (new layout)
+            sim_folder = Path(self.data_path) / self.simset_dir / str(sim.metadata['simulation_number'])
             if self._results_files['rdf'] is not None:
-                rdf_file   = Path(self.data_path) / self.results_dir / \
-                               f"{sim.metadata['simulation_number']}_{self._results_files['rdf']}"
+                rdf_file = sim_folder / self._results_files['rdf']
             else:
                 rdf_file = None
+
+            # g_ref file (saved when normalize=True)
+            gref_file = sim_folder / 'g_ref.dat'
 
             # Get equilibrium fraction for this simulation
             fraction_eq = self.fractions_eq[sim.metadata["simulation_number"]]
             # if not or badly specified, skip and clear cache if exists
             if fraction_eq is None or fraction_eq <= 0.0 or fraction_eq > 1.0:
                 # Clean cache for invalid fraction
-                if rdf_file.exists():
+                if rdf_file is not None and rdf_file.exists():
                     rdf_file.unlink()
                     if verbose:
                         print(f"RDF cache cleared for simulation #{sim.metadata['simulation_number']} ({rdf_file.name})")
                 # put placeholder None in results to maintain order
-                results.append(None)  
-                continue  
-           
+                results.append(None)
+                continue
+
             r_max_file = 0
             dr_file = 0
             normalize_file = False
@@ -561,35 +560,61 @@ class SimulationSet:
                     fraction_eq_file = float(pars_line[7])
                     normalize_file = pars_line[9].lower() == 'true'
                 data = np.loadtxt(rdf_file, unpack=True)
-            except: 
+            except Exception:
+                # no valid cache present
                 pass
 
             if not np.isclose(r_max, r_max_file) or \
-                not np.isclose(dr, dr_file) or \
-                not np.isclose(fraction_eq, fraction_eq_file) or \
-                normalize != normalize_file:
-                if verbose:                
+               not np.isclose(dr, dr_file) or \
+               not np.isclose(fraction_eq, fraction_eq_file) or \
+               normalize != normalize_file:
+                if verbose:
                     print(f"Calculating RDF for simulation #{sim.metadata['simulation_number']}...")
                     print(f"  Parameters:  r_max={r_max}, dr={dr}, fraction={fraction_eq}, normalize={normalize}")
                     print(f"  Saved vals: r_max={r_max_file}, dr={dr_file}, fraction={fraction_eq_file}, normalize={normalize_file}")
 
                 # Recalculate reference and ensemble RDFs for equilibrium fraction
-                data = sim.get_ensemble_rdf( r_max=r_max, dr=dr, fraction=fraction_eq, normalize=normalize)
-                # Save RDF data to file
+                data = sim.get_ensemble_rdf(r_max=r_max, dr=dr, fraction=fraction_eq, normalize=normalize)
+
+                # Save RDF data and g_ref (if present) to per-simulation folder
                 try:
-                    np.savetxt(rdf_file, 
-                        np.column_stack(data), 
-                        header=f'  Parameters: r_max= {r_max} dr= {dr} fraction= {fraction_eq} normalize= {normalize}\n'
-                                +'r_Angstrom g_r g_std g_ref_r' if normalize else 'r_Angstrom g_r g_std')
-                except: 
+                    sim_folder.mkdir(parents=True, exist_ok=True)
+                    if normalize and len(data) == 4:
+                        # data = (r, g_avg, g_std, g_ref)
+                        r_vals, g_avg, g_std, g_ref = data
+                        np.savetxt(rdf_file, np.column_stack((r_vals, g_avg, g_std, g_ref)),
+                                   header=f'  Parameters: r_max= {r_max} dr= {dr} fraction= {fraction_eq} normalize= {normalize}\n' + 'r_Angstrom g_r g_std g_ref_r')
+                        # save g_ref separately for easy inspection
+                        np.savetxt(gref_file, np.column_stack((r_vals, g_ref)), header='r_Angstrom g_ref')
+                    else:
+                        # data = (r, g_avg, g_std)
+                        np.savetxt(rdf_file, np.column_stack(data),
+                                   header=f'  Parameters: r_max= {r_max} dr= {dr} fraction= {fraction_eq} normalize= {normalize}\n' + 'r_Angstrom g_r g_std')
+                except Exception:
                     pass
 
             else:
-                if verbose:                
+                if verbose:
                     print(f"Using cached RDF for simulation #{sim.metadata['simulation_number']}...")
                     print(f"Parameters:  r_max={r_max}, dr={dr}, fraction={fraction_eq}, normalize={normalize}")
-                
-            results.append(data)
+
+            # If normalize=True and rdf_file exists, load g_ref and append the appropriate
+            # tuple to `results`. Otherwise append the computed `data` from the call above.
+            if normalize and rdf_file.exists():
+                try:
+                    data = np.loadtxt(rdf_file, unpack=True)
+                    # If file contains 4 rows -> r, g_avg, g_std, g_ref
+                    if data.shape[0] == 4:
+                        results.append((data[0], data[1], data[2], data[3]))
+                    else:
+                        # fallback: return whatever was read (usually r, g_avg, g_std)
+                        results.append(data)
+                except Exception:
+                    # Failed to read cache -> append None to preserve ordering
+                    results.append(None)
+            else:
+                # Non-normalized or cache missing -> `data` should come from computation above
+                results.append(data)
 
         return results
 
@@ -618,9 +643,10 @@ class SimulationSet:
         results = []
         for sim in self.simulations:
 
+            # per-simulation results folder (new layout)
+            sim_folder = Path(self.data_path) / self.simset_dir / str(sim.metadata['simulation_number'])
             if self._results_files['accessibility'] is not None:
-                acc_file = Path(self.data_path) / self.results_dir / \
-                           f"{sim.metadata['simulation_number']}_{self._results_files['accessibility']}"
+                acc_file = sim_folder / self._results_files['accessibility']
             else:
                 acc_file = None
 
@@ -632,7 +658,7 @@ class SimulationSet:
                     acc_file_exists = True
                     if verbose:
                         print(f"Loaded cached accessibility for simulation #{sim.metadata['simulation_number']}")
-                except:
+                except Exception:
                     pass
 
             if verbose and not acc_file_exists:
