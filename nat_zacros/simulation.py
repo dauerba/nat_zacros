@@ -47,6 +47,26 @@ class Simulation:
     >>> run.is_valid  # Check if run data is valid
     >>> r, g, g_std = run.get_ensemble_rdf(r_max=40.0, dr=0.1)
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
+
+    Cache / results helpers (per-simulation)
+    ----------------------------------------
+    These helpers operate at either a path (static) level or an instance level.
+
+    # Path-level helpers (no Simulation instance required)
+    >>> Simulation.clear_traj_cache_path('fn_3leed/jobs/1', traj_dir_pfx='traj')
+    >>> Simulation.clear_results_path('fn_3leed/jobs/1', target=['energy', 'gref'])
+
+    # Instance-level helpers (convenience wrappers)
+    >>> sim = Simulation('fn_3leed/jobs/1', metadata={
+    ...     'lattice_dimensions':[4,4], 'n_adsorbates':2, 'temperature':300, 'energy_terms':['label','E1']
+    ... })
+    >>> sim.clear_traj_cache()
+    >>> sim.clear_results(target='all')
+
+    Notes
+    -----
+    - `SimulationSet` delegates cache/result removal to these `Simulation` helpers so
+      filesystem logic is centralized and `Simulation` can be used standalone.
     """
 
 
@@ -225,26 +245,98 @@ class Simulation:
             print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
 
 
+    # ------------------------------------------------------------------
+    # Cache / results helpers at Simulation level
+    # ------------------------------------------------------------------
+    @staticmethod
+    def clear_traj_cache_path(sim_folder, traj_dir_pfx='traj', verbose=False):
+        """Delete per-trajectory `traj.pkl` cache files inside a simulation folder.
+
+        This is a lightweight filesystem operation and does not require
+        constructing a Simulation object that loads lattice metadata.
+        """
+        sim_folder = Path(sim_folder)
+        if not sim_folder.exists():
+            return None
+
+        for d in sim_folder.iterdir():
+            if d.is_dir() and d.name.startswith(traj_dir_pfx + '_'):
+                cf = d / 'traj.pkl'
+                if cf.exists():
+                    cf.unlink()
+                    if verbose:
+                        print(f"Deleted trajectory cache: {cf}")
+        return None
+
+    def clear_traj_cache(self, verbose=False):
+        """Instance wrapper for `clear_traj_cache_path` that operates on this simulation."""
+        return self.clear_traj_cache_path(self.dir, traj_dir_pfx=self.traj_dir_pfx, verbose=verbose)
+
+    @staticmethod
+    def clear_results_path(sim_folder, target='all', results_files=None, verbose=False):
+        """Delete user-visible result files in a simulation folder.
+
+        Parameters
+        ----------
+        sim_folder : str or Path
+            Path to the simulation folder.
+        target : str or list
+            Which result types to remove. Supported keys: 'energy', 'rdf', 'accessibility', 'gref', 'all'.
+        results_files : dict or None
+            Mapping from result key to filename (e.g. {'energy':'energy.dat'}). When None, defaults are used.
+        verbose : bool
+            Print deleted filenames when True.
+        """
+        default_map = {
+            'energy': 'energy.dat',
+            'rdf': 'rdf.dat',
+            'accessibility': 'accessibility.dat',
+            'gref': 'g_ref.dat',
+        }
+        file_map = dict(default_map if results_files is None else {**results_files, **({'gref': 'g_ref.dat'} if 'gref' not in results_files else {})})
+
+        valid_keys = set(file_map.keys())
+
+        # Normalize target
+        if isinstance(target, list):
+            formats_to_clear = target
+        elif isinstance(target, str):
+            formats_to_clear = list(valid_keys) if target == 'all' else [target]
+        else:
+            raise TypeError("target must be str or list of str")
+
+        formats_to_clear = [f for f in formats_to_clear if f in valid_keys]
+
+        sim_folder = Path(sim_folder)
+        for fmt in formats_to_clear:
+            cf = sim_folder / file_map[fmt]
+            if cf.exists():
+                cf.unlink()
+                if verbose:
+                    print(f"Deleted results file: {cf}")
+        return None
+
+    def clear_results(self, target='all', results_files=None, verbose=False):
+        """Instance wrapper for `clear_results_path` that operates on this simulation."""
+        return self.clear_results_path(self.dir, target=target, results_files=results_files, verbose=verbose)
+
     def get_g_ref(self, r_max=None, dr=0.1):
         """
         Calculate reference RDF for full lattice (all sites, coverage=1).
-        
-        This computes the number of neighbors in each distance shell,
-        used to normalize the RDF such that g(r)=1 for ideal gas.
-        
+
         Parameters
         ----------
         r_max : float, optional
             Maximum distance for RDF
         dr : float, default 0.1
             Bin width in Angstroms
-            
+
         Returns
         -------
         r_bins : ndarray
             Bin centers
         g_ref : ndarray
-            Number of neighbors in each shell (integer counts)
+            Number of neighbors in each shell (normalized counts)
         """
         if r_max is None:
             v1 = self.lattice.cell_vectors[0]
@@ -253,11 +345,12 @@ class Simulation:
             l2 = np.linalg.norm(v2)
             l3 = np.linalg.norm(v1 + v2)
             r_max = min(l1, l2, l3) / 2.0
-        
+
         # Initialize histogram
         n_bins = int(np.ceil(r_max / dr))
         bin_edges = np.linspace(0.0, r_max, n_bins + 1)
         r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+
         # Get all lattice site coordinates
         all_coords = self.lattice.coordinates
         n_sites = len(all_coords)

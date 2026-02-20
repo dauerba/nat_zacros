@@ -53,11 +53,24 @@ class SimulationSet:
         Whether to print verbose output during loading.
     
     
+Examples
+        --------
+        # Per-simulation helpers (available on Simulation and delegated by SimulationSet)
+        >>> from nat_zacros import Simulation, SimulationSet
+        >>> # Path-level (no Simulation instance required)
+        >>> Simulation.clear_traj_cache_path('/path/to/sim', traj_dir_pfx='traj')
+        >>> Simulation.clear_results_path('/path/to/sim', target=['energy','gref'])
+        >>> # Instance-level
+        >>> sim = Simulation('/path/to/sim', metadata={'lattice_dimensions':[4,4], 'n_adsorbates':2, 'temperature':300, 'energy_terms':['label','E1']})
+        >>> sim.clear_traj_cache()
+        >>> sim.clear_results(target='all')
+        >>> # SimulationSet delegates to these helpers for convenience across a set
+        >>> simset = SimulationSet('/path/to/simset')
+        >>> simset.clear_traj_cache(simulations=[1,2])
+
         Methods
     -------
-    clear_cache(target='all', simulations=None, verbose=False)
-    clear_results(target='all', simulations=None, verbose=False)
-    find_equilibrium_fraction_fit(energies_vs_time, threshold=0.01, min_equilibrium_points=10, a0_fixed=True, a0_guess_points=10)
+
     get_ensemble_energy_vs_time(n_bins=100, verbose=False)
     get_ensemble_rdfs(r_max=40.0, dr=0.1, normalize=True, verbose=False)
     get_ensemble_accessibilities(verbose=False)
@@ -185,44 +198,14 @@ class SimulationSet:
                 'energy_terms': entry[5][1:]
                })
 
-    def clear_cache(self, target='trajs', simulations=None, verbose=False):
-        """
-        Deprecated compatibility wrapper.
-
-        This method is deprecated — use `clear_traj_cache()` to remove internal
-        trajectory cache files (used only to speed loading) and `clear_results()`
-        to remove user-visible result files (energy, rdf, accessibility, gref).
-
-        Behaviour: delegates to the new methods based on `target`.
-        """
-        warnings.warn(
-            "SimulationSet.clear_cache() is deprecated — use clear_traj_cache() or clear_results()",
-            DeprecationWarning,
-        )
-
-        # Allow forwarding a list of targets
-        if isinstance(target, list):
-            if 'trajs' in target:
-                self.clear_traj_cache(simulations=simulations, verbose=verbose)
-            # forward remaining targets (if any) to clear_results
-            remaining = [t for t in target if t != 'trajs']
-            if remaining:
-                self.clear_results(target=remaining, simulations=simulations, verbose=verbose)
-            return None
-
-        # Single-target forwarding
-        if target == 'trajs':
-            return self.clear_traj_cache(simulations=simulations, verbose=verbose)
-        else:
-            return self.clear_results(target=target, simulations=simulations, verbose=verbose)
 
 
     def clear_traj_cache(self, simulations=None, verbose=False):
         """
         Remove internal trajectory cache files that speed up loading.
 
-        This deletes per-trajectory `traj.pkl` files inside each `traj_*` folder
-        and the aggregated `trajs_eq.pkl` file in each simulation folder (under `simset_dir`).
+        This deletes per-trajectory `traj.pkl` files inside each `traj_*` folder.
+        (The package no longer creates or relies on an aggregated `trajs_eq.pkl` cache.)
 
         Parameters
         ----------
@@ -233,26 +216,11 @@ class SimulationSet:
         """
         sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
 
+        # Delegate deletion to Simulation-level helper to keep filesystem logic in one place
+        from .simulation import Simulation as _Sim
         for md in sims_to_clear:
-            sim_num = str(md['simulation_number'])
-            sim_folder = Path(self.data_path) / self.simset_dir / sim_num
-
-            # Delete per-trajectory cache files
-            if sim_folder.exists():
-                for d in sim_folder.iterdir():
-                    if d.is_dir() and d.name.startswith(self.traj_dir_pfx + '_'):
-                        cf = d / 'traj.pkl'
-                        if cf.exists():
-                            cf.unlink()
-                            if verbose:
-                                print(f"Deleted trajectory cache: {cf}")
-
-            # Delete aggregated trajectory cache in simulation folder (new layout)
-            agg = sim_folder / 'trajs_eq.pkl'
-            if agg.exists():
-                agg.unlink()
-                if verbose:
-                    print(f"Deleted aggregated trajs cache: {agg}")
+            sim_folder = Path(self.data_path) / self.simset_dir / str(md['simulation_number'])
+            _Sim.clear_traj_cache_path(sim_folder, traj_dir_pfx=self.traj_dir_pfx, verbose=verbose)
 
         if simulations is None:
             print("'trajs' cache cleared for all simulations.")
@@ -291,23 +259,15 @@ class SimulationSet:
 
         sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
 
+        from .simulation import Simulation as _Sim
+        # Build a mapping compatible with Simulation.clear_results_path
+        results_map = dict(self._results_files)
+        results_map['gref'] = 'g_ref.dat'
+
         for fmt in formats_to_clear:
             for md in sims_to_clear:
-                sim_num = str(md['simulation_number'])
-                sim_folder = Path(self.data_path) / self.simset_dir / sim_num
-
-                if fmt == 'gref':
-                    # New layout stores g_ref as a text file per simulation
-                    candidates = [sim_folder / 'g_ref.dat']
-                else:
-                    fname = self._results_files[fmt]
-                    candidates = [sim_folder / fname]
-
-                for cf in candidates:
-                    if cf.exists():
-                        cf.unlink()
-                        if verbose:
-                            print(f"Deleted results file: {cf}")
+                sim_folder = Path(self.data_path) / self.simset_dir / str(md['simulation_number'])
+                _Sim.clear_results_path(sim_folder, target=fmt, results_files=results_map, verbose=verbose)
 
             if simulations is None:
                 print(f"'{fmt}' results cleared for all simulations.")
@@ -315,6 +275,7 @@ class SimulationSet:
                 print(f"'{fmt}' results cleared for simulations: {simulations}")
 
         return None
+
     def find_equilibrium_fraction_fit(self, energies_vs_time, threshold=0.01, min_equilibrium_points=10, 
                                        a0_fixed=True, a0_guess_points=10):
         """
@@ -536,8 +497,14 @@ class SimulationSet:
 
             # Get equilibrium fraction for this simulation
             fraction_eq = self.fractions_eq[sim.metadata["simulation_number"]]
-            # if not or badly specified, skip and clear cache if exists
+            # if not or badly specified, skip and warn; clear cache if exists
             if fraction_eq is None or fraction_eq <= 0.0 or fraction_eq > 1.0:
+                warnings.warn(
+                    f"Skipping RDF for simulation #{sim.metadata['simulation_number']}: "
+                    f"invalid equilibration fraction ({fraction_eq}). "
+                    "Run find_equilibrium_fraction_fit() or set simset.fractions_eq[<n>].",
+                    UserWarning,
+                )
                 # Clean cache for invalid fraction
                 if rdf_file is not None and rdf_file.exists():
                     rdf_file.unlink()

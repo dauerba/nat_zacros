@@ -64,6 +64,8 @@ The package includes several performance optimizations:
 2. **Parallel trajectory loading** (5-10x speedup)
 3. **Binary caching with pickle** (100x speedup for repeated analysis)
 
+Cache policy: the package only writes per-trajectory binary caches named `traj.pkl` inside each `traj_*` directory. There is no package-created aggregated `trajs_eq.pkl` cache — any such files created by external notebooks or scripts are considered user-managed and unsupported. Use `SimulationSet.clear_traj_cache()` to remove per-trajectory caches.
+
 See module docstring for detailed performance guide.
 
 ## Requirements
@@ -99,11 +101,30 @@ This package is part of the O_Pt111 project for studying oxygen adsorption on Pt
 
 ## Recent API changes (unreleased)
 
-- Added `SimulationSet.clear_traj_cache()` — removes internal trajectory cache files (`traj.pkl` and aggregated `<sim>_trajs_eq.pkl`) used only to speed loading.
+- Added `SimulationSet.clear_traj_cache()` — removes internal trajectory cache files (`traj.pkl`) used only to speed loading.
 - Added `SimulationSet.clear_results()` — removes user-visible result files (`energy`, `rdf`, `accessibility`, `gref`).
-- Deprecated `SimulationSet.clear_cache()` — kept as a compatibility wrapper that forwards to the new methods and emits a DeprecationWarning.
+- Added `Simulation.clear_traj_cache_path()` / `Simulation.clear_results_path()` (path-level helpers) and instance wrappers `Simulation.clear_traj_cache()` / `Simulation.clear_results()`; `SimulationSet` delegates to these helpers.
+- Removed `SimulationSet.clear_cache()` (was deprecated). Use `clear_traj_cache()` or `clear_results()` instead.
 - Unit tests added for the new cache/result-clearing behavior.
 - Updated example notebooks to use `clear_traj_cache()` / `clear_results()` instead of the deprecated API.
+
+Example (per-simulation helpers)
+
+```python
+from nat_zacros import Simulation, SimulationSet
+
+# Path-level (no Simulation instance needed)
+Simulation.clear_traj_cache_path('/path/to/run', traj_dir_pfx='traj')
+Simulation.clear_results_path('/path/to/run', target=['energy','gref'])
+
+# Instance-level
+sim = Simulation('/path/to/run', metadata={'lattice_dimensions':[4,4], 'n_adsorbates':2, 'temperature':300, 'energy_terms':['label','E1']})
+sim.clear_traj_cache()
+sim.clear_results(target='all')
+
+# Existing SimulationSet API still works (delegates to Simulation helpers)
+simset = SimulationSet('/path/to/'); simset.clear_traj_cache(simulations=[1,2])
+```
 
 ## License
 
