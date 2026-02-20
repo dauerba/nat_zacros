@@ -103,7 +103,7 @@ This package is part of the O_Pt111 project for studying oxygen adsorption on Pt
 
 - Added `SimulationSet.clear_traj_cache()` — removes internal trajectory cache files (`traj.pkl`) used only to speed loading.
 - Added `SimulationSet.clear_results()` — removes user-visible result files (`energy`, `rdf`, `accessibility`, `gref`).
-- Added `Simulation.clear_traj_cache_path()` / `Simulation.clear_results_path()` (path-level helpers) and instance wrappers `Simulation.clear_traj_cache()` / `Simulation.clear_results()`; `SimulationSet` delegates to these helpers.
+- Added `Simulation.clear_traj_cache()` / `Simulation.clear_results_path()` (path-level helpers) and instance wrapper `Simulation.clear_traj_cache()` / `Simulation.clear_results()`; `SimulationSet` delegates to these helpers.
 - Removed `SimulationSet.clear_cache()` (was deprecated). Use `clear_traj_cache()` or `clear_results()` instead.
 - Unit tests added for the new cache/result-clearing behavior.
 - Updated example notebooks to use `clear_traj_cache()` / `clear_results()` instead of the deprecated API.
@@ -114,7 +114,7 @@ Example (per-simulation helpers)
 from nat_zacros import Simulation, SimulationSet
 
 # Path-level (no Simulation instance needed)
-Simulation.clear_traj_cache_path('/path/to/run', traj_dir_pfx='traj')
+Simulation.clear_traj_cache('/path/to/run', traj_dir_pfx='traj')
 Simulation.clear_results_path('/path/to/run', target=['energy','gref'])
 
 # Instance-level

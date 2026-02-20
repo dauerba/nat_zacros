@@ -104,6 +104,28 @@ def test_get_ensemble_rdfs_warns_on_invalid_fraction(tmp_path):
         rdfs = simset.get_ensemble_rdfs(verbose=False)
     assert rdfs[0] is None
 
+    # ------------------------------------------------------------------
+    # Instance-preference tests
+    # ------------------------------------------------------------------
+    class SpySim:
+        def __init__(self, num):
+            self.metadata = {'simulation_number': num}
+            self.cache_cleared = False
+            self.results_cleared = []
+        def clear_traj_cache(self, verbose=False):
+            self.cache_cleared = True
+        def clear_results(self, target='all', results_files=None, verbose=False):
+            self.results_cleared.append(target)
+
+    simset.simulations = [SpySim(1)]
+    # clearing cache should hit instance method
+    simset.clear_traj_cache(simulations=[1], verbose=False)
+    assert simset.simulations[0].cache_cleared
+    # clearing results should hit instance method for each format
+    simset.clear_results(target=['energy','rdf'], simulations=[1], verbose=False)
+    assert 'energy' in simset.simulations[0].results_cleared
+    assert 'rdf' in simset.simulations[0].results_cleared
+
     # Also test numeric invalid fraction (0.0)
     simset.fractions_eq[1] = 0.0
     with pytest.warns(UserWarning, match=r"Skipping RDF for simulation #1"):
@@ -115,7 +137,7 @@ def test_get_ensemble_rdfs_warns_on_invalid_fraction(tmp_path):
 # Tests for Simulation-level helpers
 # ------------------------------------------------------------------
 
-def test_simulation_clear_traj_cache_path_and_instance(tmp_path):
+def test_simulation_clear_traj_cache_and_instance(tmp_path):
     sim_dir = tmp_path / 'simA'
     traj0 = sim_dir / 'traj_0'
     traj0.mkdir(parents=True, exist_ok=True)
@@ -123,9 +145,10 @@ def test_simulation_clear_traj_cache_path_and_instance(tmp_path):
 
     from nat_zacros.simulation import Simulation
 
-    # Static/path-level helper
-    Simulation.clear_traj_cache_path(sim_dir, traj_dir_pfx='traj', verbose=False)
+    # Static/path-level helper (new name)
+    Simulation.clear_traj_cache(sim_dir, traj_dir_pfx='traj', verbose=False)
     assert not (traj0 / 'traj.pkl').exists()
+
 
     # Recreate and test instance wrapper
     (traj0 / 'traj.pkl').write_bytes(b'cached')

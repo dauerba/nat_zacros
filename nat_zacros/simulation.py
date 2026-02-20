@@ -53,7 +53,7 @@ class Simulation:
     These helpers operate at either a path (static) level or an instance level.
 
     # Path-level helpers (no Simulation instance required)
-    >>> Simulation.clear_traj_cache_path('fn_3leed/jobs/1', traj_dir_pfx='traj')
+    >>> Simulation.clear_traj_cache('fn_3leed/jobs/1', traj_dir_pfx='traj')
     >>> Simulation.clear_results_path('fn_3leed/jobs/1', target=['energy', 'gref'])
 
     # Instance-level helpers (convenience wrappers)
@@ -248,14 +248,44 @@ class Simulation:
     # ------------------------------------------------------------------
     # Cache / results helpers at Simulation level
     # ------------------------------------------------------------------
-    @staticmethod
-    def clear_traj_cache_path(sim_folder, traj_dir_pfx='traj', verbose=False):
-        """Delete per-trajectory `traj.pkl` cache files inside a simulation folder.
+    def clear_traj_cache(self_or_folder, traj_dir_pfx='traj', verbose=False):
+        """Clear trajectory cache files.
 
-        This is a lightweight filesystem operation and does not require
-        constructing a Simulation object that loads lattice metadata.
+        This method is intentionally polymorphic so that it can be called in two
+        common ways:
+
+        1. **Path-level** (class call) – the first argument is interpreted as the
+           path to a simulation folder containing ``traj_*`` subdirectories.
+           Example::
+
+               Simulation.clear_traj_cache('/path/to/run', traj_dir_pfx='traj')
+
+        2. **Instance-level** – invoked on a :class:`Simulation` object with no
+           arguments.  The method will clear cache for ``self.dir``.
+           Example::
+
+               sim = Simulation('/path/to/run', metadata={...})
+               sim.clear_traj_cache()
+
+        In both cases the actual filesystem logic is the same: remove any
+        ``traj.pkl`` files inside directories beginning with ``traj_dir_pfx``.
+
+        Parameters
+        ----------
+        self_or_folder : Simulation or str or Path
+            Either a ``Simulation`` instance (when called on an object) or the
+            path to a simulation folder (when called on the class).
+        traj_dir_pfx : str, optional
+            Prefix for trajectory directories (default ``'traj'``).
+        verbose : bool, optional
+            If True, print each deleted cache file.
         """
-        sim_folder = Path(sim_folder)
+        # Determine folder depending on call style
+        if isinstance(self_or_folder, Simulation):
+            sim_folder = Path(self_or_folder.dir)
+        else:
+            sim_folder = Path(self_or_folder)
+
         if not sim_folder.exists():
             return None
 
@@ -267,10 +297,6 @@ class Simulation:
                     if verbose:
                         print(f"Deleted trajectory cache: {cf}")
         return None
-
-    def clear_traj_cache(self, verbose=False):
-        """Instance wrapper for `clear_traj_cache_path` that operates on this simulation."""
-        return self.clear_traj_cache_path(self.dir, traj_dir_pfx=self.traj_dir_pfx, verbose=verbose)
 
     @staticmethod
     def clear_results_path(sim_folder, target='all', results_files=None, verbose=False):

@@ -58,7 +58,7 @@ Examples
         # Per-simulation helpers (available on Simulation and delegated by SimulationSet)
         >>> from nat_zacros import Simulation, SimulationSet
         >>> # Path-level (no Simulation instance required)
-        >>> Simulation.clear_traj_cache_path('/path/to/sim', traj_dir_pfx='traj')
+        >>> Simulation.clear_traj_cache('/path/to/sim', traj_dir_pfx='traj')
         >>> Simulation.clear_results_path('/path/to/sim', target=['energy','gref'])
         >>> # Instance-level
         >>> sim = Simulation('/path/to/sim', metadata={'lattice_dimensions':[4,4], 'n_adsorbates':2, 'temperature':300, 'energy_terms':['label','E1']})
@@ -216,11 +216,18 @@ Examples
         """
         sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
 
-        # Delegate deletion to Simulation-level helper to keep filesystem logic in one place
-        from .simulation import Simulation as _Sim
+        # Prefer calling the instance method if the simulation has already been
+        # loaded; otherwise fall back to the class helper.  This keeps the
+        # behaviour identical while allowing callers to work with an existing
+        # ``Simulation`` object.
         for md in sims_to_clear:
-            sim_folder = Path(self.data_path) / self.simset_dir / str(md['simulation_number'])
-            _Sim.clear_traj_cache_path(sim_folder, traj_dir_pfx=self.traj_dir_pfx, verbose=verbose)
+            sim_obj = next((s for s in self.simulations if s.metadata.get('simulation_number') == md['simulation_number']), None)
+            if sim_obj is not None:
+                sim_obj.clear_traj_cache(verbose=verbose)
+            else:
+                from .simulation import Simulation as _Sim
+                sim_folder = Path(self.data_path) / self.simset_dir / str(md['simulation_number'])
+                _Sim.clear_traj_cache(sim_folder, traj_dir_pfx=self.traj_dir_pfx, verbose=verbose)
 
         if simulations is None:
             print("'trajs' cache cleared for all simulations.")
@@ -259,15 +266,18 @@ Examples
 
         sims_to_clear = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
 
-        from .simulation import Simulation as _Sim
-        # Build a mapping compatible with Simulation.clear_results_path
-        results_map = dict(self._results_files)
-        results_map['gref'] = 'g_ref.dat'
-
+        # Similar strategy: use the loaded Simulation instance when available
         for fmt in formats_to_clear:
             for md in sims_to_clear:
-                sim_folder = Path(self.data_path) / self.simset_dir / str(md['simulation_number'])
-                _Sim.clear_results_path(sim_folder, target=fmt, results_files=results_map, verbose=verbose)
+                sim_obj = next((s for s in self.simulations if s.metadata.get('simulation_number') == md['simulation_number']), None)
+                if sim_obj is not None:
+                    sim_obj.clear_results(target=fmt, results_files=None, verbose=verbose)
+                else:
+                    from .simulation import Simulation as _Sim
+                    results_map = dict(self._results_files)
+                    results_map['gref'] = 'g_ref.dat'
+                    sim_folder = Path(self.data_path) / self.simset_dir / str(md['simulation_number'])
+                    _Sim.clear_results_path(sim_folder, target=fmt, results_files=results_map, verbose=verbose)
 
             if simulations is None:
                 print(f"'{fmt}' results cleared for all simulations.")
