@@ -394,7 +394,7 @@ class Simulation:
         return r_bins, g_ref
 
 
-    def get_ensemble_rdf(self, r_max=40.0, dr=0.1, fraction=1.0, normalize=True):
+    def get_ensemble_rdf(self, r_max=40.0, dr=0.1, fraction=1.0, normalize=True, file=None):
         """
         Compute ensemble-averaged radial distribution function.
         
@@ -409,7 +409,10 @@ class Simulation:
         fraction : float, default 1.0
             Fraction of trajectory data to use for RDF calculation (e.g., 0.5 for last half)
         normalize : bool, default True
-            If True, normalize RDF using reference g_ref        
+            If True, normalize RDF using reference g_ref      
+        file : str or Path, optional
+            Path to save RDF data (r, g_avg, g_std, g_ref if normalize=True).
+            If None, data will not be saved to file (default).  
         Returns
         -------
         r : ndarray
@@ -447,11 +450,26 @@ class Simulation:
         g_avg = np.mean(rdfs, axis=0)
         g_std = np.std(rdfs, axis=0)
 
+        # Save RDF data and g_ref (if present) to per-simulation folder
+        if file is not None:
+            Path(file).parent.mkdir(parents=True, exist_ok=True)
+            if normalize:
+                np.savetxt(file, np.column_stack((r, g_avg, g_std, g_ref)),
+                    header=f'Parameters: r_max= {r_max} dr= {dr} fraction= {fraction}'
+                           f' normalize= {normalize}\n' 
+                            'r_Angstrom g_r g_std g_ref_r')
+            else:
+                np.savetxt(file, np.column_stack((r, g_avg, g_std)),
+                    header=f'Parameters: r_max= {r_max} dr= {dr} fraction= {fraction}'
+                           f' normalize= {normalize}\n'
+                            'r_Angstrom g_r g_std')
+
         if normalize:
             return r, g_avg, g_std, g_ref
         else:
             return r, g_avg, g_std
     
+
     def get_ensemble_accessibility(self, fraction=1.0):
         """
         Compute ensemble-averaged site accessibility histogram.
@@ -616,6 +634,26 @@ class Simulation:
 
         return time_centers, energy_avg, energy_std
     
+    def fraction_eq_is_invalid(self, fraction, property=None, file=None, verbose=False):
+        """Check if an equilibrium fraction is invalid.
+        """
+
+        if fraction is None or fraction <= 0.0 or fraction > 1.0:
+            print(
+                f"Skipping {property} for simulation #{self.dir.name}:\n"
+                f"  invalid equilibration fraction ({fraction}). "
+                 "Run find_equilibrium_fraction_fit() or set simset.fractions_eq[<n>].")
+            # Clean cache for invalid fraction
+            if file is not None and file.exists():
+                file.unlink()
+                if verbose:
+                    print(f"  {property}-cache cleared for simulation #{self.dir.name} ({file.name})")
+            return True
+        
+        else:
+            return False
+
+
     def __repr__(self):
         """String representation of simulation class."""
         if len(self.trajectories) > 0:
