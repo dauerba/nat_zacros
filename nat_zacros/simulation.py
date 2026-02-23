@@ -543,7 +543,7 @@ class Simulation:
         
         return accessibility, frequency_avg, frequency_std
     
-    def get_ensemble_energy_vs_time(self, n_bins=100, file=None):
+    def get_ensemble_energy_vs_time(self, pars_dict={'n_bins':100}, file=None):
         """
         Compute ensemble-averaged energy as function of time.
         
@@ -600,6 +600,14 @@ class Simulation:
         benefits of both interpolation (equal trajectory weights) and binning (uses all
         available data without artificial smoothing).
         """
+
+        try:
+            n_bins = pars_dict['n_bins']
+        except ValueError:
+            raise ValueError('Parameters dictionary does not have a key n_bins')
+        if n_bins <= 0:
+            raise ValueError("The value of n_bins must be a positive integer.")
+
         if len(self.trajectories) == 0:
             raise RuntimeError(
                 "No trajectories loaded. Call load() first."

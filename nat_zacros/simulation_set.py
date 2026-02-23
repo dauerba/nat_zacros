@@ -83,10 +83,7 @@ Examples
                  log_file           ='jobs.log', 
                  simset_dir         ='data', 
                  results_dir        ='results', 
-                 traj_dir_pfx       ='traj',
-                 en_file            ='energy.dat', 
-                 rdf_file           ='rdf.dat', 
-                 acc_file           ='accessibility.dat'):
+                 traj_dir_pfx       ='traj'):
         """
         Initialize a SimulationSet.
         
@@ -104,25 +101,18 @@ Examples
         traj_dir_pfx : str, optional
             Prefix for trajectory directories (default: 'traj').
              Trajectory directories should be named like 'traj_0', 'traj_1', etc
-        en_file : str, optional
-            Name of the energy data file (default: 'energy.dat').
-            If None, energy data files are not created.
-        rdf_file : str, optional
-            Name of the RDF data file (default: 'rdf.dat').
-            If None, RDF data files are not created.
-        acc_file : str, optional
-            Name of the accessibility data file (default: 'accessibility.dat').
-            If None, accessibility data files are not created.
+       
         """
         
         # Validate the simulation set directory exists
         if not Path(data_path).exists():
             raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
 
-        self._results_files = {
-            'energy': en_file,
-            'rdf': rdf_file,
-            'accessibility': acc_file,
+        # Dictionary (property key: property_function)
+        self._properties = {
+            'energy':        'get_ensemble_energy_vs_time',
+            'rdf':           'get_ensemble_rdfs',
+            'accessibility': 'get_ensemble_accessibilities',
         }
 
         self.data_path          = Path(data_path)
@@ -197,8 +187,7 @@ Examples
                 print(f"Warning: Failed to parse cache header in {file_path}: {e}")
             return {}
 
-    def _get_ensemble_property_generic(self, property_key, compute_func, check_params, 
-                                      use_fraction=True, verbose=False):
+    def get(self, property_key, pars_dict=None, use_fraction=True, save=True, verbose=False):
         """
         Generic helper to get ensemble-averaged property with caching.
         """
@@ -206,11 +195,19 @@ Examples
         for sim in self.simulations:
             # Setup paths
             sim_folder = Path(self.data_path) / self.results_dir / str(sim.metadata['simulation_number'])
-            rel_file = self._results_files.get(property_key)
-            cache_file = sim_folder / rel_file if rel_file else None
+            try:
+                method = getattr(sim, self._properties[property_key])
+            except ValueError:
+                raise ValueError(f"Property {property_key} not supported.")
+
+
+            if save:
+                cache_file = sim_folder / (property_key + '.dat')
+            else:
+                cache_file = None
 
             # Handle fraction logic
-            target_params = check_params.copy()
+            target_params = pars_dict.copy()
             if use_fraction:
                 fraction = self.fractions_eq[sim.metadata["simulation_number"]]
                 if sim.fraction_eq_is_invalid(fraction, property=property_key, file=cache_file, verbose=verbose):
@@ -242,7 +239,7 @@ Examples
             if verbose:
                 print(f"Calculating {property_key} for simulation #{sim.metadata['simulation_number']}...")
             
-            data = compute_func(sim, cache_file, target_params)
+            data = method(pars_dict=target_params, file=cache_file)
             results.append(data)
 
         return results
@@ -561,29 +558,29 @@ Examples
         return fit_results
 
 
-    def get_ensemble_energy_vs_time(self, n_bins=100, verbose=False):
-        """
-        Get ensemble-averaged energy vs time for all simulations in the set.
-        Parameters
-        ----------
-        n_bins : int, default 100
-            Number of time bins for averaging.
-        verbose : bool, default False
-            If True, print detailed calculation information.
+    # def get_ensemble_energy_vs_time(self, n_bins=100, verbose=False):
+    #     """
+    #     Get ensemble-averaged energy vs time for all simulations in the set.
+    #     Parameters
+    #     ----------
+    #     n_bins : int, default 100
+    #         Number of time bins for averaging.
+    #     verbose : bool, default False
+    #         If True, print detailed calculation information.
 
-        Returns
-        -------
-        results : list of tuples
-            Each tuple contains (times, energies, energies_std) for a simulation.
-        """
-        if n_bins <= 0:
-            raise ValueError("n_bins must be a positive integer.")
+    #     Returns
+    #     -------
+    #     results : list of tuples
+    #         Each tuple contains (times, energies, energies_std) for a simulation.
+    #     """
+    #     if n_bins <= 0:
+    #         raise ValueError("n_bins must be a positive integer.")
         
-        def compute(sim, cache_file, params):
-            return sim.get_ensemble_energy_vs_time(n_bins=params['n_bins'], file=cache_file)
+    #     def compute(sim, cache_file, params):
+    #         return sim.get_ensemble_energy_vs_time(n_bins=params['n_bins'], file=cache_file)
         
-        return self._get_ensemble_property_generic('energy', compute, {'n_bins': n_bins}, 
-                                                 use_fraction=False, verbose=verbose)
+    #     return self._get_ensemble_property_generic('energy', compute, {'n_bins': n_bins}, 
+    #                                              use_fraction=False, verbose=verbose)
 
 
     def get_ensemble_rdfs(self, r_max=40.0, dr=0.1, normalize=True, verbose=False):
