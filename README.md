@@ -1,14 +1,26 @@
 # nat_zacros
 
+> [!CAUTION]
+> **EARLY DEVELOPMENT STAGE - DO NOT MODIFY DOCUMENTATION OR TESTS**
+> This project is in active flux. Backward compatibility is NOT maintained.
+> There are currently NO USERS. Do not spend time updating README, documentation, or unit tests.
+> Focus solely on functional code development and bug fixes.
+
 Python package for analyzing Zacros kinetic Monte Carlo simulations of surface reactions.
 
-## Features
+## Features  -- NEEDS TO BE REDONE
 
-- **Lattice Geometry**: FCC(111) surface lattice with periodic boundary conditions
-- **State Management**: Parse and manipulate adsorbate configurations
-- **Trajectory Analysis**: Load and analyze KMC trajectories
-- **RDF Calculations**: Fast vectorized radial distribution functions with PBC
-- **Parallel Processing**: Efficient loading and analysis of multiple trajectories
+- Create submission scripts for Zacros Calculations and Analysis Code to Extract Results
+- Implemented as a hiearchy of classes in Python
+    - Lattice           geomentry of the lattice used in the simulation and pbc for distances
+    - State             occupation of lattice sites by adsorbatetes
+    - Trajectory        a sequence of states
+        - methods to load trajectories from Zacros output files
+    - Simulation        a set of trajecotries for given onditionos of temperature, coverage, ...
+        - methods to calculate ensemble average propoerties like Energy, RDF, Cluster Size Distributions ...
+    - Simulation_Set    a set of Simulation with high level interface
+        - methods to implement high level interface to other classes, anallyze and plto results
+
 
 ## Installation
 
@@ -22,38 +34,14 @@ pip install git+https://github.com/dauerba/nat_zacros.git
 git clone https://github.com/dauerba/nat_zacros.git
 cd nat_zacros
 pip install -e .
-```
-  If the virtual environment is set by conda then
-follow recommendations from: https://github.com/conda/conda/issues/5861
-```bash
-git clone https://github.com/dauerba/nat_zacros.git
-cd nat_zacros
-VIRTUAL_ENV = $CONDA_PREFIX
-pip install --src $VIRTUAL_ENV/src -e .
-```
 
-## Quick Start
+
+## Quick Start   NEEDS REWRITE
 
 ```python
 from nat_zacros import lattice, trajectory
 
-# Load lattice and trajectory
-lat = lattice(dirname='zacros_run_0080')
-traj = trajectory(lat, dirname='zacros_run_0080')
-
-# Load trajectory data (equilibrated portion)
-traj.load_trajectory(energy_only=True)
-traj.load_equilibrated_states(fraction=0.5)
-
-# Compute radial distribution function
-r, g = traj.get_rdf(r_max=40.0, dr=0.1)
-
-# Plot
-import matplotlib.pyplot as plt
-plt.plot(r, g)
-plt.xlabel('Distance (Å)')
-plt.ylabel('g(r)')
-plt.show()
+show example of Simulation set class to produce energy, rdf, and accessibility distributions
 ```
 
 ## Performance Optimization
@@ -61,15 +49,15 @@ plt.show()
 The package includes several performance optimizations:
 
 1. **Vectorized distance calculations** (50-100x speedup)
-2. **Parallel trajectory loading** (5-10x speedup)
-3. **Binary caching with pickle** (100x speedup for repeated analysis)
+2. **Parallel trajectory loading** (????x speedup)
+3. **Binary caching with pickle** ( ????x speedup for repeated analysis)
 
-Cache policy: the package only writes per-trajectory binary caches named `traj.pkl` inside each `traj_*` directory. There is no package-created aggregated `trajs_eq.pkl` cache — any such files created by external notebooks or scripts are considered user-managed and unsupported. Use `SimulationSet.clear_traj_cache()` to remove per-trajectory caches.
 
 See module docstring for detailed performance guide.
 
 ## Requirements
-
+ADD PIP > xxx to support editable install
+Consider more stringent requirements for Python
 - Python >= 3.8
 - NumPy >= 1.20
 - SciPy >= 1.7
@@ -80,14 +68,20 @@ See module docstring for detailed performance guide.
 ```
 nat_zacros/
 ├── nat_zacros/
-│   ├── __init__.py       # Package entry point
-│   ├── lattice.py        # FCC(111) lattice geometry
-│   ├── state.py          # Adsorbate configurations
-│   ├── trajectory.py     # State sequences and RDF analysis
-│   └── rdf.py            # Parallel computation utilities
-├── tests/                # Unit tests (future)
-├── examples/             # Example notebooks (future)
-├── setup.py              # Package installation
+│   ├── __init__.py           # Package entry point
+├── lattice.py                # Lattice geometry (currently only FCC111) is supported
+├── state.py                  # Adsorbates configuration on the lattice
+├── trajectory.py             # Sequence of states from a zacros kMC simulation
+│   ├── simulation.py         # Simulation compriseing 1 or more trajectories with methods to 
+|   |                         -  Load and cache trajectories, compute ensemble averaged properties (energy, RDF, ...)
+│   ├── simulation_set.py
+│
+│
+├── scripts/
+├── tests/                    # Unit tests 
+├── examples/                 # Example notebooks
+│
+├── pypoject.toml             # Package installation
 └── README.md
 ```
 

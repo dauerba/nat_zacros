@@ -36,12 +36,13 @@ def _make_simset_tree(tmp_path):
         # per-package design: do not create an aggregated `trajs_eq.pkl` cache here
 
     # user-visible results for simulation 1
-    sim1 = root / 'data' / '1'
-    (sim1 / 'energy.dat').write_text('dummy')
-    (sim1 / 'rdf.dat').write_text('dummy')
-    (sim1 / 'accessibility.dat').write_text('dummy')
+    sim1_res = root / 'results' / '1'
+    sim1_res.mkdir(parents=True, exist_ok=True)
+    (sim1_res / 'energy.dat').write_text('dummy')
+    (sim1_res / 'rdf.dat').write_text('dummy')
+    (sim1_res / 'accessibility.dat').write_text('dummy')
     # g_ref cache (text format)
-    (sim1 / 'g_ref.dat').write_text('0.0 1.0')
+    (sim1_res / 'g_ref.dat').write_text('0.0 1.0')
 
     return root
 
@@ -66,26 +67,26 @@ def test_clear_results_removes_user_files_and_gref(tmp_path):
     simset = SimulationSet(root)
 
     # Sanity: files exist
-    assert (root / 'data' / '1' / 'energy.dat').exists()
-    assert (root / 'data' / '1' / 'rdf.dat').exists()
-    assert (root / 'data' / '1' / 'accessibility.dat').exists()
-    assert (root / 'data' / '1' / 'g_ref.dat').exists()
+    assert (root / 'results' / '1' / 'energy.dat').exists()
+    assert (root / 'results' / '1' / 'rdf.dat').exists()
+    assert (root / 'results' / '1' / 'accessibility.dat').exists()
+    assert (root / 'results' / '1' / 'g_ref.dat').exists()
 
     # Clear specific results (energy + gref)
     simset.clear_results(target=['energy', 'gref'], simulations=[1], verbose=False)
 
     # energy for sim 1 removed, other files untouched
-    assert not (root / 'data' / '1' / 'energy.dat').exists()
-    assert (root / 'data' / '1' / 'rdf.dat').exists()
-    assert (root / 'data' / '1' / 'accessibility.dat').exists()
+    assert not (root / 'results' / '1' / 'energy.dat').exists()
+    assert (root / 'results' / '1' / 'rdf.dat').exists()
+    assert (root / 'results' / '1' / 'accessibility.dat').exists()
 
     # gref removed
-    assert not (root / 'data' / '1' / 'g_ref.dat').exists()
+    assert not (root / 'results' / '1' / 'g_ref.dat').exists()
 
     # Now clear all remaining results
     simset.clear_results(target='all', verbose=False)
-    assert not (root / 'data' / '1' / 'rdf.dat').exists()
-    assert not (root / 'data' / '1' / 'accessibility.dat').exists()
+    assert not (root / 'results' / '1' / 'rdf.dat').exists()
+    assert not (root / 'results' / '1' / 'accessibility.dat').exists()
     # aggregated caches are not part of clear_results (package does not create them)
 
 
@@ -97,6 +98,14 @@ def test_get_ensemble_rdfs_warns_on_invalid_fraction(tmp_path):
     class DummySim:
         def __init__(self, sim_num):
             self.metadata = {'simulation_number': sim_num}
+        def fraction_eq_is_invalid(self, fraction, property=None, file=None, verbose=False):
+            import warnings
+            if fraction is None:
+                warnings.warn(f"Skipping RDF for simulation #1", UserWarning)
+                return True
+            return False
+        def clear_traj_cache(self, verbose=False):
+            return 0
     simset.simulations = [DummySim(1)]
 
     # Expect a UserWarning and a None entry in results
@@ -114,9 +123,16 @@ def test_get_ensemble_rdfs_warns_on_invalid_fraction(tmp_path):
             self.results_cleared = []
         def clear_traj_cache(self, verbose=False):
             self.cache_cleared = True
+            return 0
         def clear_results(self, target='all', results_files=None, verbose=False):
             self.results_cleared.append(target)
-
+            return 0
+        def fraction_eq_is_invalid(self, fraction, property=None, file=None, verbose=False):
+            import warnings
+            if fraction is not None and fraction <= 0.0:
+                warnings.warn(f"Skipping RDF for simulation #1", UserWarning)
+                return True
+            return False
     simset.simulations = [SpySim(1)]
     # clearing cache should hit instance method
     simset.clear_traj_cache(simulations=[1], verbose=False)

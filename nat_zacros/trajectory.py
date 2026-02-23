@@ -347,9 +347,14 @@ class Trajectory:
         else:
             return np.array([]), np.array([])
         
-    def get_accessibility_histogram(self):
+    def get_accessibility_histogram(self, fraction=1.0):
         """
         Calculate histogram of site accessibility (number of vacant nearest neighbors).
+
+        Parameters
+        ----------
+        fraction : float, default 1.0
+            Fraction of snapshots to use (e.g., 0.5 for last half).
         
         Returns
         -------
@@ -365,7 +370,11 @@ class Trajectory:
         """
         all_accessibility = []
         
-        for st in self.states:
+        # Determine number of snapshots to use based on fraction
+        n_states = len(self.states)
+        use_states = self.states[int(n_states * (1.0 - fraction)):]
+
+        for st in use_states:
             occupied_sites = st.get_occupied_sites()
             
             for site_idx in occupied_sites:

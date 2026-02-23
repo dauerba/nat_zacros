@@ -248,55 +248,61 @@ class Simulation:
     # ------------------------------------------------------------------
     # Cache / results helpers at Simulation level
     # ------------------------------------------------------------------
-    def clear_traj_cache(self_or_folder, traj_dir_pfx='traj', verbose=False):
-        """Clear trajectory cache files.
+    @staticmethod
+    def clear_traj_cache_path(sim_folder, traj_dir_pfx='traj', verbose=False):
+        """Remove internal trajectory cache files from a folder.
 
-        This method is intentionally polymorphic so that it can be called in two
-        common ways:
-
-        1. **Path-level** (class call) – the first argument is interpreted as the
-           path to a simulation folder containing ``traj_*`` subdirectories.
-           Example::
-
-               Simulation.clear_traj_cache('/path/to/run', traj_dir_pfx='traj')
-
-        2. **Instance-level** – invoked on a :class:`Simulation` object with no
-           arguments.  The method will clear cache for ``self.dir``.
-           Example::
-
-               sim = Simulation('/path/to/run', metadata={...})
-               sim.clear_traj_cache()
-
-        In both cases the actual filesystem logic is the same: remove any
-        ``traj.pkl`` files inside directories beginning with ``traj_dir_pfx``.
+        This deletes per-trajectory ``traj.pkl`` files inside each ``traj_*`` folder.
 
         Parameters
         ----------
-        self_or_folder : Simulation or str or Path
-            Either a ``Simulation`` instance (when called on an object) or the
-            path to a simulation folder (when called on the class).
+        sim_folder : str or Path
+            Path to the simulation folder.
         traj_dir_pfx : str, optional
             Prefix for trajectory directories (default ``'traj'``).
         verbose : bool, optional
             If True, print each deleted cache file.
+
+        Returns
+        -------
+        list of Path
+            List of deleted cache files.
         """
-        # Determine folder depending on call style
-        if isinstance(self_or_folder, Simulation):
-            sim_folder = Path(self_or_folder.dir)
-        else:
-            sim_folder = Path(self_or_folder)
-
+        sim_folder = Path(sim_folder)
         if not sim_folder.exists():
-            return None
+            return []
 
+        deleted = []
         for d in sim_folder.iterdir():
             if d.is_dir() and d.name.startswith(traj_dir_pfx + '_'):
                 cf = d / 'traj.pkl'
                 if cf.exists():
                     cf.unlink()
+                    deleted.append(cf)
                     if verbose:
                         print(f"Deleted trajectory cache: {cf}")
-        return None
+        return deleted
+
+    def clear_traj_cache(self_or_folder, traj_dir_pfx='traj', verbose=False):
+        """Clear trajectory cache files.
+
+        This method is polymorphic so that it can be called in two ways:
+        1. **Path-level** (class call) – first argument is simulation folder path.
+           Example: Simulation.clear_traj_cache('/path/to/run', traj_dir_pfx='traj')
+        2. **Instance-level** – invoked on a Simulation object.
+           Example: sim.clear_traj_cache()
+        """
+        if isinstance(self_or_folder, Simulation):
+            sim_folder = self_or_folder.dir
+            pfx = self_or_folder.traj_dir_pfx
+            v = verbose
+        else:
+            sim_folder = self_or_folder
+            pfx = traj_dir_pfx
+            v = verbose
+
+        deleted = Simulation.clear_traj_cache_path(sim_folder, traj_dir_pfx=pfx, verbose=v)
+        return len(deleted)
 
     @staticmethod
     def clear_results_path(sim_folder, target='all', results_files=None, verbose=False):
@@ -334,17 +340,20 @@ class Simulation:
         formats_to_clear = [f for f in formats_to_clear if f in valid_keys]
 
         sim_folder = Path(sim_folder)
+        count = 0
         for fmt in formats_to_clear:
             cf = sim_folder / file_map[fmt]
             if cf.exists():
                 cf.unlink()
+                count += 1
                 if verbose:
                     print(f"Deleted results file: {cf}")
-        return None
+        return count
 
-    def clear_results(self, target='all', results_files=None, verbose=False):
+    def clear_results(self, target='all', results_files=None, verbose=False, search_dir=None):
         """Instance wrapper for `clear_results_path` that operates on this simulation."""
-        return self.clear_results_path(self.dir, target=target, results_files=results_files, verbose=verbose)
+        d = search_dir if search_dir is not None else self.dir
+        return self.clear_results_path(d, target=target, results_files=results_files, verbose=verbose)
 
     def get_g_ref(self, r_max=None, dr=0.1):
         """
@@ -455,13 +464,11 @@ class Simulation:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             if normalize:
                 np.savetxt(file, np.column_stack((r, g_avg, g_std, g_ref)),
-                    header=f'Parameters: r_max= {r_max} dr= {dr} fraction= {fraction}'
-                           f' normalize= {normalize}\n' 
+                    header=f'Parameters: r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
                             'r_Angstrom g_r g_std g_ref_r')
             else:
                 np.savetxt(file, np.column_stack((r, g_avg, g_std)),
-                    header=f'Parameters: r_max= {r_max} dr= {dr} fraction= {fraction}'
-                           f' normalize= {normalize}\n'
+                    header=f'Parameters: r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
                             'r_Angstrom g_r g_std')
 
         if normalize:
@@ -470,7 +477,7 @@ class Simulation:
             return r, g_avg, g_std
     
 
-    def get_ensemble_accessibility(self, fraction=1.0):
+    def get_ensemble_accessibility(self, fraction=1.0, file=None):
         """
         Compute ensemble-averaged site accessibility histogram.
         
@@ -481,6 +488,9 @@ class Simulation:
         ----------
         fraction : float, default 1.0
             Fraction of trajectory data to use for accessibility calculation (e.g., 0.5 for last half)
+        file : str or Path, optional
+            Path to save the accessibility data (accessibility, frequency_avg, frequency_std).
+            If None, data will not be saved to file (default).
             
         Returns
         -------
@@ -498,13 +508,13 @@ class Simulation:
         """
         if len(self.trajectories) == 0:
             raise RuntimeError(
-                "No trajectories loaded. Call load_trajectories() first."
+                "No trajectories loaded. Call load() first."
             )
         
         # Compute accessibility for each trajectory
         accessibilities = []
         for i, traj in enumerate(self.trajectories):
-            acc, freq = traj.get_accessibility_histogram()
+            acc, freq = traj.get_accessibility_histogram(fraction=fraction)
             accessibilities.append(freq)
         
         # Get max coordination from first trajectory
@@ -521,6 +531,15 @@ class Simulation:
         frequencies_array = np.array(frequencies_padded)
         frequency_avg = np.mean(frequencies_array, axis=0)
         frequency_std = np.std(frequencies_array, axis=0)
+
+        # Save accessibility data to file
+        if file is not None:
+            Path(file).parent.mkdir(parents=True, exist_ok=True)
+            np.savetxt(file, 
+                np.column_stack((accessibility, frequency_avg, frequency_std)), 
+                header=f'Parameters: fraction={fraction}\n'
+                       'accessibility_level frequency frequency_std',
+                fmt='%d %f %f')
         
         return accessibility, frequency_avg, frequency_std
     
@@ -630,7 +649,7 @@ class Simulation:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             np.savetxt(file, 
                 np.column_stack((time_centers, energy_avg, energy_std)), 
-                header=f'Parameters: n_bins = {n_bins}\nTime_s Energy_eV Energy_std_eV')
+                header=f'Parameters: n_bins={n_bins}\nTime_s Energy_eV Energy_std_eV')
 
         return time_centers, energy_avg, energy_std
     
