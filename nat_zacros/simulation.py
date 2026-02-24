@@ -14,6 +14,8 @@ from .trajectory import Trajectory
 
 class Simulation:
     """
+    Summary
+    -------
     Manages a Zacros simulation with multiple trajectories.
     
     This class provides a high-level interface for:
@@ -39,6 +41,10 @@ class Simulation:
     traj_dirs : list of Path
         Paths to individual trajectory directories
     
+    Methods
+    -------
+    TO DO: write this section
+
     Examples
     --------
     >>> # Typical workflow
@@ -73,7 +79,8 @@ class Simulation:
     def __init__(self, dir, 
                  metadata=None,
                  lattice_dims=None, n_ads=None, temperature=None, energy_terms=None,
-                 traj_dir_pfx='traj'):
+                 traj_dir_pfx='traj',
+                 lattice=None):
         """
         Initialize a simulation.
         
@@ -84,8 +91,8 @@ class Simulation:
             This directory should contain traj_1, traj_2, ... subdirectories
         metadata : dict, optional
             Pre-defined metadata (if available)
-        name : str, optional
-            Name of the simulation (default: None)
+        lattice : Lattice, optional
+            Shared lattice object (default: None).
         lattice_dims : list, optional
             Lattice dimensions [nx, ny] (default: None)
         n_ads : int, optional
@@ -103,6 +110,7 @@ class Simulation:
         self.dir = Path(dir)
         self.is_valid = True  # Assume the simulation is valid initially
         self.traj_dir_pfx = traj_dir_pfx
+        self.lattice = lattice
 
         if metadata is not None:
             self.metadata = metadata
@@ -141,8 +149,10 @@ class Simulation:
                 self.is_valid = False
             
             else:
-                # Create lattice from first trajectory
-                self.lattice = Lattice(self.traj_dirs[0])
+                # Use passed lattice if available, otherwise create from first trajectory
+                if self.lattice is None:
+                    self.lattice = Lattice(self.traj_dirs[0])
+                
                 if not self.lattice.is_defined:
                     print(f"Cannot load lattice data for simulation {self.dir.name}")
                     self.is_valid = False
@@ -403,7 +413,7 @@ class Simulation:
         return r_bins, g_ref
 
 
-    def get_ensemble_rdf(self, r_max=40.0, dr=0.1, fraction=1.0, normalize=True, file=None):
+    def get_ensemble_rdf(self, pars_dict=None, file=None):
         """
         Compute ensemble-averaged radial distribution function.
         
@@ -411,17 +421,20 @@ class Simulation:
         
         Parameters
         ----------
-        r_max : float, default 40.0
-            Maximum distance for RDF (Angstroms)
-        dr : float, default 0.1
-            Bin width for RDF (Angstroms)
-        fraction : float, default 1.0
-            Fraction of trajectory data to use for RDF calculation (e.g., 0.5 for last half)
-        normalize : bool, default True
-            If True, normalize RDF using reference g_ref      
+        pars_dict : dict, optional
+            Dictionary of parameters:
+            - r_max : float, default 40.0
+                Maximum distance for RDF (Angstroms)
+            - dr : float, default 0.1
+                Bin width for RDF (Angstroms)
+            - fraction : float, default 1.0
+                Fraction of trajectory data to use for RDF calculation (e.g., 0.5 for last half)
+            - normalize : bool, default True
+                If True, normalize RDF using reference g_ref      
         file : str or Path, optional
             Path to save RDF data (r, g_avg, g_std, g_ref if normalize=True).
             If None, data will not be saved to file (default).  
+
         Returns
         -------
         r : ndarray
@@ -438,6 +451,16 @@ class Simulation:
         RuntimeError
             If trajectories have not been loaded yet
         """
+
+        # Set defaults and update from pars_dict
+        pars = {'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
+        if pars_dict is not None:
+            pars.update(pars_dict)
+        
+        r_max = pars['r_max']
+        dr = pars['dr']
+        fraction = pars['fraction']
+        normalize = pars['normalize']
 
         if len(self.trajectories) == 0:
             raise RuntimeError(
@@ -477,7 +500,7 @@ class Simulation:
             return r, g_avg, g_std
     
 
-    def get_ensemble_accessibility(self, fraction=1.0, file=None):
+    def get_ensemble_accessibility(self, pars_dict=None, file=None):
         """
         Compute ensemble-averaged site accessibility histogram.
         
@@ -486,8 +509,10 @@ class Simulation:
         
         Parameters
         ----------
-        fraction : float, default 1.0
-            Fraction of trajectory data to use for accessibility calculation (e.g., 0.5 for last half)
+        pars_dict : dict, optional
+            Dictionary of parameters:
+            - fraction : float, default 1.0
+                Fraction of trajectory data to use for accessibility calculation (e.g., 0.5 for last half)
         file : str or Path, optional
             Path to save the accessibility data (accessibility, frequency_avg, frequency_std).
             If None, data will not be saved to file (default).
@@ -506,6 +531,13 @@ class Simulation:
         RuntimeError
             If trajectories have not been loaded yet
         """
+        # Set defaults and update from pars_dict
+        pars = {'fraction': 1.0}
+        if pars_dict is not None:
+            pars.update(pars_dict)
+        
+        fraction = pars['fraction']
+
         if len(self.trajectories) == 0:
             raise RuntimeError(
                 "No trajectories loaded. Call load() first."
@@ -543,7 +575,7 @@ class Simulation:
         
         return accessibility, frequency_avg, frequency_std
     
-    def get_ensemble_energy_vs_time(self, pars_dict={'n_bins':100}, file=None):
+    def get_ensemble_energy_vs_time(self, pars_dict=None, file=None):
         """
         Compute ensemble-averaged energy as function of time.
         
@@ -560,8 +592,10 @@ class Simulation:
         
         Parameters
         ----------
-        n_bins : int, default 100
-            Number of time bins for averaging
+        pars_dict : dict, optional
+            Dictionary of parameters:
+            - n_bins : int, default 100
+                Number of time bins for averaging
         file : str or Path, optional    
             Path to save the energy vs time data (time, energy_avg, energy_std).
             If None, data will not be saved to file (default).
@@ -601,10 +635,12 @@ class Simulation:
         available data without artificial smoothing).
         """
 
-        try:
-            n_bins = pars_dict['n_bins']
-        except ValueError:
-            raise ValueError('Parameters dictionary does not have a key n_bins')
+        # Set defaults and update from pars_dict
+        pars = {'n_bins': 100}
+        if pars_dict is not None:
+            pars.update(pars_dict)
+        
+        n_bins = pars['n_bins']
         if n_bins <= 0:
             raise ValueError("The value of n_bins must be a positive integer.")
 

@@ -19,17 +19,23 @@ import warnings
 from pathlib import Path
 import tarfile
 from .simulation import Simulation
+from .lattice import Lattice
 
 class SimulationSet:
     """
+    Summary
+    -------
     Manages a Zacros simulation set.
     
     This class provides a high-level interface for:
     - Metadata extraction from jobs.log
+    - Loading and caching of multiple simulations in the set
+    - Ensemble-averaged property calculations (energy vs time, RDFs, accessibilities)
+    - Equilibration fraction estimation via fitting energy vs time to an exponential decay model
+    - Cache management for trajectories and results across the set
     
     Attributes
     ----------
-
     data_path  : Path or str
         Directory containing the log_file, simset_dir, and results_dir
     en_file_sfx : str
@@ -45,38 +51,48 @@ class SimulationSet:
         subdirectory containing simulation results (default: 'results')
     simset_dir : str
         subdirectory containing a simulation set (default: 'jobs')
-    simulations : list of Simulation
-        List of loaded Simulation objects in the set.
+    simulations : dict
+        Dictionary of loaded Simulation objects {simulation_number: Simulation}.
     use_cache : bool
         Whether caching is used when loading simulations.
     verbose : bool
         Whether to print verbose output during loading.
     
-    
-Examples
-        --------
-        # Per-simulation helpers (available on Simulation and delegated by SimulationSet)
-        >>> from nat_zacros import Simulation, SimulationSet
-        >>> # Path-level (no Simulation instance required)
-        >>> Simulation.clear_traj_cache('/path/to/sim', traj_dir_pfx='traj')
-        >>> Simulation.clear_results_path('/path/to/sim', target=['energy','gref'])
-        >>> # Instance-level
-        >>> sim = Simulation('/path/to/sim', metadata={'lattice_dimensions':[4,4], 'n_adsorbates':2, 'temperature':300, 'energy_terms':['label','E1']})
-        >>> sim.clear_traj_cache()
-        >>> sim.clear_results(target='all')
-        >>> # SimulationSet delegates to these helpers for convenience across a set
-        >>> simset = SimulationSet('/path/to/simset')
-        >>> simset.clear_traj_cache(simulations=[1,2])
-
-        Methods
+    Methods
     -------
-
-    get_ensemble_energy_vs_time(n_bins=100, verbose=False)
-    get_ensemble_rdfs(r_max=40.0, dr=0.1, normalize=True, verbose=False)
-    get_ensemble_accessibilities(verbose=False)
+    check_cache_status(simulations=None)
+    clear_results(target='all', simulations=None, verbose=False)
+    clear_traj_cache(simulations=None, verbose=False)
+    find_equilibrium_fraction_fit(energies_vs_time, threshold=0.01, min_equilibrium_points=10, a0_fixed=True, a0_guess_points=10)
+    get(property_key, pars_dict=None, simulations=None, use_fraction=False, save=True, verbose=False)
     load(cache=None, workers=mp.cpu_count(), simulations=None, verbose=False)
+    plot_accessibilities(accessibilities, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16)
     plot_energy(energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True)
-      
+    plot_rdf(rdfs, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16)
+
+    Examples
+    --------
+    >>> from nat_zacros import SimulationSet
+    >>> simset = SimulationSet('/path/to/simset')
+    >>> simset.load()
+    >>>
+    >>> # Get ensemble-averaged properties via the unified get() method
+    >>> energies = simset.get('energy', pars_dict={'n_bins': 100})
+    >>> rdfs = simset.get('rdf', pars_dict={'dr': 0.1})
+    >>> accs = simset.get('accessibility')
+    >>>
+    >>> # Plotting
+    >>> simset.plot_energy(energies)
+    >>> simset.plot_rdf(rdfs)
+    >>> simset.plot_accessibilities(accs)
+
+    Notes
+    -----
+    The `get()` method is the central entry point for all ensemble analysis.
+    Supported property keys and their default parameters:
+    - 'energy': {'n_bins': 100}
+    - 'rdf': {'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
+    - 'accessibility': {'fraction': 1.0}
     """
 
     def __init__(self, data_path, 
@@ -111,8 +127,14 @@ Examples
         # Dictionary (property key: property_function)
         self._properties = {
             'energy':        'get_ensemble_energy_vs_time',
-            'rdf':           'get_ensemble_rdfs',
-            'accessibility': 'get_ensemble_accessibilities',
+            'rdf':           'get_ensemble_rdf',
+            'accessibility': 'get_ensemble_accessibility',
+        }
+
+        self._results_files = {
+            'energy':        'energy.dat',
+            'rdf':           'rdf.dat',
+            'accessibility': 'accessibility.dat',
         }
 
         self.data_path          = Path(data_path)
@@ -142,16 +164,66 @@ Examples
                 print(f"Extraction complete.")
 
         self._load_metadata()
-        self.simulations        = []   # initialize simulations list
+        self.simulations        = {}   # initialize simulations dictionary {id: SimulationObject}
         # Initialize equilibration fractions dictionary with default None for each simulation
         # This avoids KeyError when code expects an entry per simulation unless user overrides.
         self.fractions_eq       = {md['simulation_number']: None for md in getattr(self, 'metadata', [])}
         
+        # Initialize shared lattice
+        self.lattice            = None
+        self._initialize_lattice()
+
+    def _initialize_lattice(self):
+        """Find the first available simulation and initialize the shared lattice from its first trajectory."""
+        if not hasattr(self, 'metadata') or not self.metadata:
+            return
+
+        # Use the first simulation number from metadata
+        sn = self.metadata[0]['simulation_number']
+        sim_folder = self.data_path / self.simset_dir / f"{sn}"
+        
+        if not sim_folder.exists():
+            # If the directory doesn't exist yet, we can't initialize the shared lattice.
+            # This is common if the user hasn't extracted the simulations.
+            if self.verbose:
+                print(f"Warning: Shared lattice folder not found at {sim_folder}. Lattice will be initialized on load.")
+            return
+
+        # Find first trajectory directory
+        try:
+            traj_dirs = sorted([
+                d for d in sim_folder.iterdir() 
+                if d.is_dir() and d.name.startswith(self.traj_dir_pfx + '_')
+            ])
+            if traj_dirs:
+                self.lattice = Lattice(traj_dirs[0])
+                if not self.lattice.is_defined:
+                    print(f"Warning: Failed to define lattice from {traj_dirs[0]}.")
+                    self.lattice = None
+            elif self.verbose:
+                print(f"No trajectory directories found in {sim_folder} for shared lattice initialization.")
+        except Exception as e:
+            if self.verbose:
+                print(f"Error during shared lattice initialization: {e}")
+            self.lattice = None
 
     def _parse_cache_header(self, file_path, verbose=False):
         """
         Parse parameters from the first line of a cache file.
+
         Format expected: # Parameters: key1=val1 key2=val2 ...
+
+        Parameters
+        ----------
+        file_path : str or Path
+            Path to the cache file.
+        verbose : bool, optional
+            If True, prints warnings on failure.
+
+        Returns
+        -------
+        dict
+            Dictionary of parsed parameter keys and values.
         """
         if file_path is None or not Path(file_path).exists():
             return {}
@@ -187,17 +259,67 @@ Examples
                 print(f"Warning: Failed to parse cache header in {file_path}: {e}")
             return {}
 
-    def get(self, property_key, pars_dict=None, use_fraction=True, save=True, verbose=False):
+    def get(self, property_key, pars_dict=None, simulations=None, use_fraction=False, save=True, verbose=False):
         """
-        Generic helper to get ensemble-averaged property with caching.
+        Compute an ensemble-averaged property with caching support.
+
+        This method retrieves the specified property for specified simulations in the set,
+        either by loading from a cache file or by performing the calculation if
+        the cache is missing or invalid.
+
+        Parameters
+        ----------
+        property_key : str
+            Key for the property to compute (e.g., 'energy', 'rdf', 'accessibility').
+        pars_dict : dict, optional
+            Dictionary of parameters to pass to the property computation method (default is None).
+        simulations : int, list[int], 'all', or None
+            Specification of simulations to process; None or 'all' => process all loaded simulations.
+        use_fraction : bool, optional
+            Whether to use the equilibration fraction for the computation (default is False).
+        save : bool, optional
+            Whether to save the computed property to a cache file (default is True).
+        verbose : bool, optional
+            Whether to print detailed information during computation (default is False).
+
+        Returns
+        -------
+        list
+            A list containing the computed property data for each simulation.
+            Entries may be None if the computation was skipped.
+
+        Raises
+        ------
+        ValueError
+            If the property_key is not recognized.
         """
+        
+        # Collect results for selected simulations
+        if simulations is None:
+            # Default to all simulations that are currently LOADED (in numerical order)
+            sim_nums = self.loaded_ids
+        else:
+            sim_nums = self._get_simulation_numbers(simulations)
+
+        # Autoload missing simulations
+        missing = [sn for sn in sim_nums if sn not in self.simulations]
+        if missing:
+            if verbose:
+                print(f"Autoloading {len(missing)} simulations...")
+            self.load(simulations=missing, verbose=verbose)
+
+        # Process simulations in numerical order
+        sims_to_process = [self.simulations[sn] for sn in sim_nums if sn in self.simulations]
+        
         results = []
-        for sim in self.simulations:
+        for sim in sims_to_process:
             # Setup paths
             sim_folder = Path(self.data_path) / self.results_dir / str(sim.metadata['simulation_number'])
+            
+            # Get the method to compute the property from the Simulation class instance
             try:
                 method = getattr(sim, self._properties[property_key])
-            except ValueError:
+            except (KeyError, AttributeError):
                 raise ValueError(f"Property {property_key} not supported.")
 
 
@@ -207,7 +329,7 @@ Examples
                 cache_file = None
 
             # Handle fraction logic
-            target_params = pars_dict.copy()
+            target_params = pars_dict.copy() if pars_dict is not None else {}
             if use_fraction:
                 fraction = self.fractions_eq[sim.metadata["simulation_number"]]
                 if sim.fraction_eq_is_invalid(fraction, property=property_key, file=cache_file, verbose=verbose):
@@ -284,7 +406,25 @@ Examples
                 'energy_terms': entry[5][1:]
                })
 
+    def _get_simulation_numbers(self, simulations=None):
+        """
+        Helper to normalize simulation input into a list of integers.
 
+        Parameters
+        ----------
+        simulations : int, list[int], 'all', or None
+            The simulation specification to normalize.
+
+        Returns
+        -------
+        list[int]
+            List of simulation numbers.
+        """
+        if simulations is None or simulations == 'all':
+            return sorted([md['simulation_number'] for md in self.metadata])
+        if isinstance(simulations, int):
+            return [simulations]
+        return sorted(list(simulations))
 
     def clear_traj_cache(self, simulations=None, verbose=False):
         """
@@ -294,12 +434,12 @@ Examples
 
         Parameters
         ----------
-        simulations : list[int] or None
-            Simulation numbers to clear; None => all simulations in set.
+        simulations : int, list[int], 'all', or None
+            Simulation numbers to clear; None or 'all' => all simulations in set.
         verbose : bool
             Print each deleted file when True.
         """
-        sim_nums = [md['simulation_number'] for md in self.metadata] if simulations is None else simulations
+        sim_nums = self._get_simulation_numbers(simulations)
         from .simulation import Simulation as _Sim
         
         if verbose:
@@ -308,7 +448,7 @@ Examples
         total_count = 0
         for sn in sim_nums:
             # Check if simulation is already loaded to prefer instance method (for testing/consistency)
-            sim_obj = next((s for s in self.simulations if s.metadata.get('simulation_number') == sn), None)
+            sim_obj = self.simulations.get(sn)
             
             sim_path = Path(self.data_path) / self.simset_dir / str(sn)
             pfx = getattr(sim_obj, 'traj_dir_pfx', self.traj_dir_pfx)
@@ -342,17 +482,23 @@ Examples
 
     def clear_results(self, target='all', simulations=None, verbose=False):
         """
-        Clear user-visible result files for the simulation set.
+        Delete ensemble-averaged result files (e.g., energy.dat, rdf.dat) from the results directory.
+        
+        This manages files on disk without needing to load simulations into RAM first.
 
-        Supported targets: 'energy', 'rdf', 'accessibility', 'gref', or 'all'.
         Parameters
         ----------
         target : str or list, default 'all'
-            Which result types to clear.
-        simulations : list[int] or None
-            If provided, restrict clearing to these simulation numbers; None => all.
+            Which result types to remove. Supported: 'energy', 'rdf', 'accessibility', 'gref', 'all'.
+        simulations : int, list[int], 'all', or None
+            Specification of simulations to clear; None or 'all' => check all in set.
         verbose : bool
-            Print deleted filenames when True.
+            Whether to print detailed information about each deleted file.
+            
+        Returns
+        -------
+        int
+            Total number of files deleted.
         """
         valid_keys = set(self._results_files.keys()) | {'gref'}
 
@@ -370,26 +516,26 @@ Examples
         if not formats_to_clear:
             return 0
 
-        sim_nums = [md['simulation_number'] for md in self.metadata] if simulations is None else simulations
-
+        # get numbers of the simulations we want to clear results for; default to all simulations in set if not specified
+        sim_nums = self._get_simulation_numbers(simulations)
         from .simulation import Simulation as _Sim
         results_map = dict(self._results_files)
         results_map['gref'] = 'g_ref.dat'
 
         total_count = 0
+        if verbose:
+            print(f"Clearing results in {(self.data_path / self.results_dir).as_posix()}")
+
         for sn in sim_nums:
-            sim_obj = next((s for s in self.simulations if s.metadata.get('simulation_number') == sn), None)
             sim_res_folder = Path(self.data_path) / self.results_dir / str(sn)
             
-            for fmt in formats_to_clear:
-                if sim_obj is not None:
-                    count = sim_obj.clear_results(target=fmt, results_files=results_map, 
-                                                  verbose=verbose, search_dir=sim_res_folder)
-                else:
-                    count = _Sim.clear_results_path(sim_res_folder, target=fmt, 
-                                                    results_files=results_map, verbose=verbose)
-                total_count += count
+            # Use the static path method to clear without needing a lot of RAM
+            # Note: We pass the whole list of formats to clear in one call to the helper
+            count = _Sim.clear_results_path(sim_res_folder, target=formats_to_clear, 
+                                            results_files=results_map, verbose=verbose)
+            total_count += count
 
+        # Summary message
         if simulations is not None:
             sim_display = str(sim_nums) if len(sim_nums) <= 10 else f"{sim_nums[:10]}... (+{len(sim_nums)-10} more)"
             sim_msg = f"for simulations: {sim_display}"
@@ -397,7 +543,6 @@ Examples
             sim_msg = "for all simulations"
 
         if total_count > 0:
-            print(f"Results Path: {(self.data_path / self.results_dir).as_posix()}")
             print(f"Cleared {total_count} '{target}' result file(s) {sim_msg}.")
         else:
             print(f"No '{target}' result files found {sim_msg}.")
@@ -410,27 +555,34 @@ Examples
         
         Parameters
         ----------
-        simulations : list of int, optional
-            List of simulation numbers to check. If None, check all simulations in the set.
+        simulations : int, list[int], 'all', or None
+            Specification of simulations to check; None or 'all' => check all in set.
         """
-        sim_nums = [md['simulation_number'] for md in self.metadata] if simulations is None else simulations
+        sim_nums = self._get_simulation_numbers(simulations)
+        
+        print(f"{'Sim #':<6} | {'RAM':<6} | {'Traj Cache':<14} | {'Results'}")
+        print("-" * 60)
         
         for sn in sim_nums:
             res_dir = self.data_path / self.results_dir / str(sn)
             data_dir = self.data_path / self.simset_dir / str(sn)
             
-            print(f"Simulation #{sn}:")
-            # Check results
-            for label, filename in self._results_files.items():
-                if filename is None: continue
-                f = res_dir / filename
-                status = "EXISTS" if f.exists() else "MISSING"
-                print(f"  {label:14}: {status}")
-                
-            # Check trajectory cache
+            # 1. RAM Status
+            in_ram = "LOADED" if sn in self.simulations else "-"
+            
+            # 2. Trajectory Cache Status
             traj_pkls = list(data_dir.glob(f"{self.traj_dir_pfx}_*/traj.pkl"))
-            print(f"  traj cache    : {len(traj_pkls)} pkl file(s) found")
-            print("-" * 34)
+            traj_status = f"{len(traj_pkls)} pkls" if traj_pkls else "MISSING"
+            
+            # 3. Results Status
+            found_results = []
+            for label, filename in self._results_files.items():
+                if filename and (res_dir / filename).exists():
+                    found_results.append(label)
+            
+            results_str = ", ".join(found_results) if found_results else "NONE"
+            
+            print(f"{sn:<6} | {in_ram:<6} | {traj_status:<14} | {results_str}")
 
     def find_equilibrium_fraction_fit(self, energies_vs_time, threshold=0.01, min_equilibrium_points=10, 
                                        a0_fixed=True, a0_guess_points=10):
@@ -532,7 +684,9 @@ Examples
                 return None, None, None, None
 
         fit_results = []
-        for isim, sim in enumerate(self.simulations):
+        # Use sorted loaded_ids to match the order of energies_vs_time (which usually comes from get())
+        for isim, sn in enumerate(self.loaded_ids):
+            sim = self.simulations[sn]
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = energies_vs_time[isim]
@@ -558,88 +712,6 @@ Examples
         return fit_results
 
 
-    # def get_ensemble_energy_vs_time(self, n_bins=100, verbose=False):
-    #     """
-    #     Get ensemble-averaged energy vs time for all simulations in the set.
-    #     Parameters
-    #     ----------
-    #     n_bins : int, default 100
-    #         Number of time bins for averaging.
-    #     verbose : bool, default False
-    #         If True, print detailed calculation information.
-
-    #     Returns
-    #     -------
-    #     results : list of tuples
-    #         Each tuple contains (times, energies, energies_std) for a simulation.
-    #     """
-    #     if n_bins <= 0:
-    #         raise ValueError("n_bins must be a positive integer.")
-        
-    #     def compute(sim, cache_file, params):
-    #         return sim.get_ensemble_energy_vs_time(n_bins=params['n_bins'], file=cache_file)
-        
-    #     return self._get_ensemble_property_generic('energy', compute, {'n_bins': n_bins}, 
-    #                                              use_fraction=False, verbose=verbose)
-
-
-    def get_ensemble_rdfs(self, r_max=40.0, dr=0.1, normalize=True, verbose=False):
-        """
-        Get ensemble-averaged RDF for all simulations in the set.
-        Parameters
-        ----------
-        r_max : float, default 40.0
-            Maximum distance for RDF (Angstroms)
-        dr : float, default 0.1
-            Bin width for RDF (Angstroms)
-        normalize : bool, default True
-            If True, normalize RDF using reference
-        verbose : bool, default False
-            If True, print detailed calculation information.
-
-        Returns
-        -------
-        results : list of tuples
-            Each tuple contains (r, g_r, g_ref_r) for a simulation.
-        """
-        if r_max <= 0:
-            raise ValueError("r_max must be a positive number.")
-        if dr <= 0:
-            raise ValueError("dr must be a positive number.")
-        
-        def compute(sim, cache_file, params):
-            return sim.get_ensemble_rdf(r_max=params['r_max'], dr=params['dr'], 
-                                      fraction=params['fraction'], normalize=params['normalize'],
-                                      file=cache_file)
-
-        return self._get_ensemble_property_generic('rdf', compute, 
-                                                 {'r_max': r_max, 'dr': dr, 'normalize': normalize}, 
-                                                 use_fraction=True, verbose=verbose)
-
-
-    def get_ensemble_accessibilities(self, verbose=False):
-        """
-        Get ensemble-averaged accessibility for all simulations in the set.
-        
-        Accessibility measures how many nearest neighbor sites are vacant,
-        which affects reactivity and diffusion rates.
-        
-        Parameters
-        ----------
-        verbose : bool, default False
-            If True, print detailed calculation information.
-
-        Returns
-        -------
-        results : list of tuples
-            Each tuple contains (accessibility, frequency, frequency_std) for a simulation.
-        """
-        def compute(sim, cache_file, params):
-            return sim.get_ensemble_accessibility(fraction=params['fraction'], file=cache_file)
-        
-        return self._get_ensemble_property_generic('accessibility', compute, {}, 
-                                                 use_fraction=True, verbose=verbose)
-
     def load(self, cache=True, workers=mp.cpu_count(), simulations=None, verbose=False):
         """
         Load data for simulations in the set.
@@ -649,21 +721,47 @@ Examples
         cache : bool, default True
             If True, load cached trajectory data if available; cache trajectory data if not already cached.
             if False, load from raw simulation data.
-        simulations : list of int or None, default None
-            If list of int, load only specified simulation numbers. If None, load all simulations.
+        simulations : int, list[int], 'all', or None
+            Specification of simulations to load; None or 'all' => load all in set.
         verbose : bool, default False
             If True, print detailed loading information.
         workers : int, default mp.cpu_count()
             Number of worker processes to use for parallel loading.
             If None, load serially.
         """
-        
-        md_to_load = self.metadata if simulations is None else [md for md in self.metadata if md['simulation_number'] in simulations]
+        sim_nums = self._get_simulation_numbers(simulations)
+        md_to_load = [md for md in self.metadata if md['simulation_number'] in sim_nums]
+
+        # Ensure lattice is initialized if possible
+        if self.lattice is None:
+            self._initialize_lattice()
+
         for md in md_to_load:
-            sim_folder = Path(self.data_path) / self.simset_dir / f"{md['simulation_number']}"
-            sim = Simulation(sim_folder, metadata=md, traj_dir_pfx=self.traj_dir_pfx)
-            sim.load(cache=cache, workers=workers, verbose=verbose) 
-            self.simulations.append(sim)
+            sn = md['simulation_number']
+            if sn not in self.simulations:
+                sim_folder = Path(self.data_path) / self.simset_dir / f"{sn}"
+                sim = Simulation(sim_folder, metadata=md, traj_dir_pfx=self.traj_dir_pfx, lattice=self.lattice)
+                self.simulations[sn] = sim
+            
+            # Load the simulation data (handles its own caching internally)
+            self.simulations[sn].load(cache=cache, workers=workers, verbose=verbose) 
+
+    def unload(self, simulations=None):
+        """
+        Unload specified simulations from memory.
+        
+        Parameters
+        ----------
+        simulations : int, list[int], 'all', or None
+            Specification of simulations to unload; None or 'all' => unload all.
+        """
+        if simulations is None or simulations == 'all':
+            self.simulations = {}
+        else:
+            sim_nums = self._get_simulation_numbers(simulations)
+            for sn in sim_nums:
+                if sn in self.simulations:
+                    del self.simulations[sn]
 
     def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
         """Plot ensemble-averaged energy vs time for the loaded simulations.
@@ -693,13 +791,16 @@ Examples
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
         fig_title = f'Ensemble averaged energy vs time -- {self.data_path.parts[-1]}'
-        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
+        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.0) # slightly lower y for better spacing
 
         if not self.simulations:
             print("No simulations loaded: Nothing to plot.")
             return
-        
-        for isim, sim in enumerate(self.simulations):
+
+        # Iterate over loaded simulations in numerical order
+        loaded_ids = self.loaded_ids
+        for isim, sn in enumerate(loaded_ids):
+            sim = self.simulations[sn]
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = energies_vs_time[isim]
@@ -774,7 +875,7 @@ Examples
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
-        for idx in range(len(self.simulations), total_plots):
+        for idx in range(len(loaded_ids), total_plots):
             ax = axes[idx//ncols, idx%ncols]
             ax.axis('off')
 
@@ -803,7 +904,6 @@ Examples
         """
 
         # Set up subplots
-
         nrows = int(np.ceil(len(self.simulations)/ncols))
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
@@ -815,7 +915,10 @@ Examples
             print("No simulations loaded: Nothing to plot.")
             return
         
-        for isim, sim in enumerate(self.simulations):
+        # Iterate over loaded simulations in numerical order
+        loaded_ids = self.loaded_ids
+        for isim, sn in enumerate(loaded_ids):
+            sim = self.simulations[sn]
 
             data = rdfs[isim]
             ax = axes[isim//ncols, isim%ncols]
@@ -834,7 +937,7 @@ Examples
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
-        for idx in range(len(self.simulations), total_plots):
+        for idx in range(len(loaded_ids), total_plots):
             ax = axes[idx//ncols, idx%ncols]
             ax.axis('off')
 
@@ -878,7 +981,10 @@ Examples
             print("No simulations loaded: Nothing to plot.")
             return
         
-        for isim, sim in enumerate(self.simulations):
+        # Iterate over loaded simulations in numerical order
+        loaded_ids = self.loaded_ids
+        for isim, sn in enumerate(loaded_ids):
+            sim = self.simulations[sn]
 
             data = accessibilities[isim]
             ax = axes[isim//ncols, isim%ncols]
@@ -900,7 +1006,7 @@ Examples
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
-        for idx in range(len(self.simulations), total_plots):
+        for idx in range(len(loaded_ids), total_plots):
             ax = axes[idx//ncols, idx%ncols]
             ax.axis('off')
 
@@ -909,7 +1015,12 @@ Examples
 
 
     def __len__(self):
-        """Return number of simulations."""
+        """Return total number of simulations found in the log file."""
         return len(self.metadata)
+
+    @property
+    def loaded_ids(self):
+        """Return list of simulation numbers currently loaded in memory."""
+        return sorted(list(self.simulations.keys()))
 
 
