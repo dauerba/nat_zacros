@@ -457,9 +457,9 @@ class Simulation:
         if pars_dict is not None:
             pars.update(pars_dict)
         
-        r_max = pars['r_max']
-        dr = pars['dr']
-        fraction = pars['fraction']
+        r_max =     pars['r_max']
+        dr =        pars['dr']
+        fraction =  pars['fraction']
         normalize = pars['normalize']
 
         if len(self.trajectories) == 0:
@@ -542,38 +542,33 @@ class Simulation:
             raise RuntimeError(
                 "No trajectories loaded. Call load() first."
             )
-        
+
         # Compute accessibility for each trajectory
-        accessibilities = []
+        f13 = []
+        f2  = []
         for i, traj in enumerate(self.trajectories):
-            acc, freq = traj.get_accessibility_histogram(fraction=fraction)
-            accessibilities.append(freq)
+            freq_13, freq_2 = traj.get_accessibility_histogram(fraction=fraction)
+            f13.append(freq_13)
+            f2.append(freq_2)
         
-        # Get max coordination from first trajectory
-        max_coord = np.max(self.trajectories[0].lattice.site_coordinations)
-        accessibility = np.arange(max_coord + 1)
-        
-        # Pad all frequencies to same length and compute ensemble statistics
-        frequencies_padded = []
-        for freq in accessibilities:
-            padded = np.zeros(max_coord + 1)
-            padded[:len(freq)] = freq
-            frequencies_padded.append(padded)
-        
-        frequencies_array = np.array(frequencies_padded)
-        frequency_avg = np.mean(frequencies_array, axis=0)
-        frequency_std = np.std(frequencies_array, axis=0)
+        frequencies_13 = np.array(f13)
+        frequency_13_avg = np.mean(frequencies_13, axis=0)
+        frequency_13_std = np.std(frequencies_13, axis=0)
+
+        frequencies_2 = np.array(f2)
+        frequency_2_avg = np.mean(frequencies_2, axis=0)
+        frequency_2_std = np.std(frequencies_2, axis=0)
 
         # Save accessibility data to file
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             np.savetxt(file, 
-                np.column_stack((accessibility, frequency_avg, frequency_std)), 
+                np.column_stack((frequency_13_avg, frequency_13_std,frequency_2_avg, frequency_2_std)), 
                 header=f'Parameters: fraction={fraction}\n'
-                       'accessibility_level frequency frequency_std',
-                fmt='%d %f %f')
+                       'frequency_13_avg frequency_13_std frequency_2_avg frequency_2_std ',
+                fmt='%f %f %f %f')
         
-        return accessibility, frequency_avg, frequency_std
+        return frequency_13_avg, frequency_13_std,frequency_2_avg, frequency_2_std
     
     def get_ensemble_energy_vs_time(self, pars_dict=None, file=None):
         """

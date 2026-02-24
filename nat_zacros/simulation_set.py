@@ -131,12 +131,6 @@ class SimulationSet:
             'accessibility': 'get_ensemble_accessibility',
         }
 
-        self._results_files = {
-            'energy':        'energy.dat',
-            'rdf':           'rdf.dat',
-            'accessibility': 'accessibility.dat',
-        }
-
         self.data_path          = Path(data_path)
         self.log_file           = log_file
         self.results_dir        = results_dir
@@ -500,7 +494,7 @@ class SimulationSet:
         int
             Total number of files deleted.
         """
-        valid_keys = set(self._results_files.keys()) | {'gref'}
+        valid_keys = set(self._properties.keys())
 
         # Normalize target
         if isinstance(target, list):
@@ -518,9 +512,6 @@ class SimulationSet:
 
         # get numbers of the simulations we want to clear results for; default to all simulations in set if not specified
         sim_nums = self._get_simulation_numbers(simulations)
-        from .simulation import Simulation as _Sim
-        results_map = dict(self._results_files)
-        results_map['gref'] = 'g_ref.dat'
 
         total_count = 0
         if verbose:
@@ -531,7 +522,7 @@ class SimulationSet:
             
             # Use the static path method to clear without needing a lot of RAM
             # Note: We pass the whole list of formats to clear in one call to the helper
-            count = _Sim.clear_results_path(sim_res_folder, target=formats_to_clear, 
+            count = Simulation.clear_results_path(sim_res_folder, target=formats_to_clear, 
                                             results_files=results_map, verbose=verbose)
             total_count += count
 

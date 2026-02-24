@@ -163,7 +163,7 @@ class State:
             acc2_list.append(vacant_2)
 
                 
-        return np.array(acc13_list), np.array(acc2_list)
+        return acc13_list, acc2_list
 
     def get_coverage(self):
         """

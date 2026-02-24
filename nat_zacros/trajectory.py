@@ -368,36 +368,28 @@ class Trajectory:
         Accessibility measures how many nearest neighbor sites are vacant,
         which affects reactivity and diffusion rates.
         """
-        all_accessibility = []
+        accessibilities_13 = []
+        accessibilities_2  = []
         
         # Determine number of snapshots to use based on fraction
         n_states = len(self.states)
         use_states = self.states[int(n_states * (1.0 - fraction)):]
+        # Maximum site coordination number
+        max_coord = np.max(self.lattice.site_coordinations)
+
 
         for st in use_states:
-            occupied_sites = st.get_occupied_sites()
-            
-            for site_idx in occupied_sites:
-                # Get nearest neighbors for this site
-                nn_sites = self.lattice.site_nns[site_idx]
-                
-                # Count vacant neighbors
-                vacant_nn = np.sum(st.occupation[nn_sites] == 0)
-                all_accessibility.append(vacant_nn)
-                
-        # Calculate histogram
-        if len(all_accessibility) > 0:
-            max_coord = np.max(self.lattice.site_coordinations)
-            accessibility = np.arange(max_coord + 1)
-            counts = np.zeros(max_coord + 1)
-            
-            for val in all_accessibility:
-                counts[val] += 1
-                
-            frequencies = counts / counts.sum()
-            return accessibility, frequencies
-        else:
-            return np.array([]), np.array([])
+            acc13, acc2 = st.get_accessibility()
+            accessibilities_13 += acc13
+            accessibilities_2  += acc2
+
+        counts = np.bincount(accessibilities_13, minlength=max_coord)
+        frequencies_13 = counts / counts.sum()
+
+        counts = np.bincount(accessibilities_2, minlength=max_coord)
+        frequencies_2 = counts / counts.sum()
+
+        return frequencies_13, frequencies_2
         
     def get_coverage_vs_time(self):
         """
