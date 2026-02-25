@@ -522,8 +522,8 @@ class SimulationSet:
             
             # Use the static path method to clear without needing a lot of RAM
             # Note: We pass the whole list of formats to clear in one call to the helper
-            count = Simulation.clear_results_path(sim_res_folder, target=formats_to_clear, 
-                                            results_files=results_map, verbose=verbose)
+            count = Simulation.clear_results_path(sim_res_folder, formats_to_clear, 
+                                                  verbose=verbose)
             total_count += count
 
         # Summary message

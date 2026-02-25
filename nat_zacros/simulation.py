@@ -315,7 +315,7 @@ class Simulation:
         return len(deleted)
 
     @staticmethod
-    def clear_results_path(sim_folder, target='all', results_files=None, verbose=False):
+    def clear_results_path(sim_folder, properties, verbose=False):
         """Delete user-visible result files in a simulation folder.
 
         Parameters
@@ -324,35 +324,14 @@ class Simulation:
             Path to the simulation folder.
         target : str or list
             Which result types to remove. Supported keys: 'energy', 'rdf', 'accessibility', 'gref', 'all'.
-        results_files : dict or None
-            Mapping from result key to filename (e.g. {'energy':'energy.dat'}). When None, defaults are used.
         verbose : bool
             Print deleted filenames when True.
         """
-        default_map = {
-            'energy': 'energy.dat',
-            'rdf': 'rdf.dat',
-            'accessibility': 'accessibility.dat',
-            'gref': 'g_ref.dat',
-        }
-        file_map = dict(default_map if results_files is None else {**results_files, **({'gref': 'g_ref.dat'} if 'gref' not in results_files else {})})
-
-        valid_keys = set(file_map.keys())
-
-        # Normalize target
-        if isinstance(target, list):
-            formats_to_clear = target
-        elif isinstance(target, str):
-            formats_to_clear = list(valid_keys) if target == 'all' else [target]
-        else:
-            raise TypeError("target must be str or list of str")
-
-        formats_to_clear = [f for f in formats_to_clear if f in valid_keys]
 
         sim_folder = Path(sim_folder)
         count = 0
-        for fmt in formats_to_clear:
-            cf = sim_folder / file_map[fmt]
+        for p in properties:
+            cf = sim_folder / f'{p}.dat'
             if cf.exists():
                 cf.unlink()
                 count += 1
@@ -723,7 +702,7 @@ class Simulation:
         return (
             f"simulation(sim={self.metadata['simulation_number']}, "
             f"T={self.metadata['temperature']}K, "
-            f"θ={self.metadata['coverage']:.3f} "
+            f"θ={self.metadata['coverage']:.3f}) "
         )
     
     def __len__(self):
