@@ -1,7 +1,4 @@
-*.code-workspace
-copilot-instructions.md
-
- Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
@@ -208,3 +205,14 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project Specific / Local Dev
+scratch/
+notes/
+dev_drafts/
+latest_pull_diff.diff
+*.code-workspace
+copilot-instructions.md
+
+
+
