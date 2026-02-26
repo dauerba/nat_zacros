@@ -157,16 +157,13 @@ class SimulationSet:
             else:
                 print(f"Extraction complete.")
 
-        self._load_metadata()
-        self.simulations        = {}   # initialize simulations dictionary {id: SimulationObject}
+        # Load metadata from the log file to a dictionary of simulation objects
+        self.simulations = self._load_metadata()
+
         # Initialize equilibration fractions dictionary with default None for each simulation
         # This avoids KeyError when code expects an entry per simulation unless user overrides.
-        self.fractions_eq       = {md['simulation_number']: None for md in getattr(self, 'metadata', [])}
+        self.fractions_eq = {key: None for key in self.simulations.keys()}
         
-        # Initialize shared lattice
-        self.lattice            = None
-        self._initialize_lattice()
-
     def _initialize_lattice(self):
         """Find the first available simulation and initialize the shared lattice from its first trajectory."""
         if not hasattr(self, 'metadata') or not self.metadata:
@@ -386,11 +383,12 @@ class SimulationSet:
             )
         
         # Extract metadata from log entry
-        # Format: list of [sim_num, job_name, [nx, ny], [n_ads], temp, interaction_info, ...]
-        self.metadata = []
+        # Format: dictionary of simulation-specific dictionaries
+        sim_dict = {}
         for entry in log_entries:
-            self.metadata.append({
-                'simulation_number': entry[0],
+            sn = entry[0]
+            sdir = Path(self.data_path) / self.simset_dir / f'{sn}'
+            md = {
                 'job_name': entry[1],
                 'lattice_dimensions': entry[2],  # [nx, ny]
                 'n_cells': entry[2][0] * entry[2][1],
@@ -398,8 +396,14 @@ class SimulationSet:
                 'temperature': entry[4],  # K
                 'coverage': entry[3][0] / (entry[2][0] * entry[2][1]),
                 'energy_terms': entry[5][1:]
-               })
+                }
 
+            sim_dict[sn] = Simulation(sdir, metadata=md, 
+                                        traj_dir_pfx=self.traj_dir_pfx)
+            
+        return sim_dict
+            
+            
     def _get_simulation_numbers(self, simulations=None):
         """
         Helper to normalize simulation input into a list of integers.
@@ -1007,7 +1011,7 @@ class SimulationSet:
 
     def __len__(self):
         """Return total number of simulations found in the log file."""
-        return len(self.metadata)
+        return len(self.simulations)
 
     @property
     def loaded_ids(self):
