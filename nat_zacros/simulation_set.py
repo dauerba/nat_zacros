@@ -359,7 +359,8 @@ class SimulationSet:
 
     def _load_metadata(self):
         """
-        Load simulation metadata from log file.
+        Load simulation metadata from log file and creates a dictionary of the corresponding
+        simulation objects.
         
         Parses the log file of simulation set to extract temperature, coverage, energy terms,
         and lattice dimensions for all simulations in the set.
@@ -1012,6 +1013,18 @@ class SimulationSet:
     def __len__(self):
         """Return total number of simulations found in the log file."""
         return len(self.simulations)
+
+    def __repr__(self):
+        """String representation of SimulationSet class."""
+        if len(self.simulations) > 0:
+            n_sims = len(self.simulations)
+            sim_info = f"{n_sims} simulations"
+        else:
+            sim_info = f"no simulation found"
+        
+        return (
+            f"simulation_set({sim_info}) "
+        )
 
     @property
     def loaded_ids(self):

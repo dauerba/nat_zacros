@@ -76,11 +76,7 @@ class Simulation:
     """
 
 
-    def __init__(self, dir, 
-                 metadata=None,
-                 lattice_dims=None, n_ads=None, temperature=None, energy_terms=None,
-                 traj_dir_pfx='traj',
-                 lattice=None):
+    def __init__(self, dir, metadata, traj_dir_pfx='traj', lattice=None):
         """
         Initialize a simulation.
         
@@ -89,47 +85,39 @@ class Simulation:
         dir : str or Path
             Path to simulation directory
             This directory should contain traj_1, traj_2, ... subdirectories
-        metadata : dict, optional
-            Pre-defined metadata (if available)
-        lattice : Lattice, optional
-            Shared lattice object (default: None).
-        lattice_dims : list, optional
-            Lattice dimensions [nx, ny] (default: None)
-        n_ads : int, optional
-            Number of adsorbates (default: None)
-        temperature : float, optional
-            Temperature in Kelvin (default: None)
-        energy_terms : list, optional
-            List of energy terms (default: None)
+        metadata : dict
+            metadata defining conditions of simulations;
+            dict must include at least 
+                'lattice_dimensions', 'n_adsorbates', 'temperature', 'energy_terms' keys
         traj_dir_pfx : str, optional
             Prefix for trajectory directories (default: 'traj').
              Trajectory directories should be named like 'traj_0', 'traj_1', etc
-
+        lattice : Lattice, optional
+            Shared lattice object (default: None).
         """
 
         self.dir = Path(dir)
         self.is_valid = True  # Assume the simulation is valid initially
         self.traj_dir_pfx = traj_dir_pfx
         self.lattice = lattice
+        self.trajectories = {}
 
-        if metadata is not None:
-            self.metadata = metadata
-        else:
-            self.metadata = {}
+        self.metadata = metadata
+
+        necessary_keys = ['lattice_dimensions', 
+                          'n_adsorbates', 
+                          'temperature', 
+                          'energy_terms']
 
         args_ok = True
-        args = [lattice_dims, n_ads, temperature, energy_terms]
-        keys = ['lattice_dimensions', 'n_adsorbates', 'temperature', 'energy_terms']
-
-        for arg, key in zip(args, keys):
-            if arg is not None:
-                self.metadata[key] = arg
+        for key in necessary_keys:
             if key not in self.metadata:
-                print(f" {key.replace('_', ' ').capitalize()} undefined.")
+                print(f" {key} undefined.")
                 args_ok = False
 
         if not args_ok:
-            raise Exception("Stopping execution")
+            self.is_valid = False
+            print('Not enough metadata for a valid simulation.')
 
         # Validate simulation directory exists
         if not self.dir.exists():
@@ -158,7 +146,8 @@ class Simulation:
                     self.is_valid = False
                 else:
                     # Initialize trajectory list
-                    self.trajectories = []
+                    for tdir in self.traj_dirs:
+                        self.trajectories[tdir.name] = Trajectory(tdir, self.lattice)
         
 
     def _load_single_trajectory(self, traj_dir, cache=True, verbose=False):
@@ -693,16 +682,20 @@ class Simulation:
 
     def __repr__(self):
         """String representation of simulation class."""
-        if len(self.trajectories) > 0:
-            n_states = len(self.trajectories[0].states)
-            traj_info = f", {len(self.trajectories)} trajectories ({n_states} states each)"
+
+        n_trajs = len(self)
+        if n_trajs > 0:
+            n_states = np.sum([len(tr) for tr in self.trajectories.values()])
         else:
-            traj_info = f", {len(self.traj_dirs)} trajectories (not loaded)"
+            n_states = 0
+
+        traj_info = f", {n_trajs} trajectories with {n_states} states in total)"
         
         return (
-            f"simulation(sim={self.metadata['simulation_number']}, "
+            f"simulation(sim= {self.dir.name}, "
             f"T={self.metadata['temperature']}K, "
-            f"θ={self.metadata['coverage']:.3f}) "
+            f"θ={self.metadata['coverage']:.3f})"
+            + traj_info
         )
     
     def __len__(self):

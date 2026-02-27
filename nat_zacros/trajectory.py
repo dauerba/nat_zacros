@@ -415,7 +415,7 @@ class Trajectory:
         if len(self.states) > 0:
             return len(self.states)
         else:
-            return len(self.times)
+            return len(self.states)
         
     def __getitem__(self, idx):
         """
