@@ -150,64 +150,104 @@ class Simulation:
                         self.trajectories[tdir.name] = Trajectory(tdir, self.lattice)
         
 
-    def _load_single_trajectory(self, traj_dir, cache=True, verbose=False):
-        """
-        Helper function for parallel trajectory loading.
-        Parameters
-        ----------
-        traj_dir : Path
-            Directory containing trajectory data
-        cache : bool, default True
-            If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
-            If False, load from raw simulation data.
-        verbose : bool, optional
-            If True, print verbose output.
-        Returns
-        -------
-        trajectory
-            Trajectory object
-        """
+#
+# Commented are the functions for parallelizing the loading
+# We consider to throw them away
+#
+    # def _load_single_trajectory(self, traj_dir, cache=True, verbose=False):
+    #     """
+    #     Helper function for parallel trajectory loading.
+    #     Parameters
+    #     ----------
+    #     traj_dir : Path
+    #         Directory containing trajectory data
+    #     cache : bool, default True
+    #         If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
+    #         If False, load from raw simulation data.
+    #     verbose : bool, optional
+    #         If True, print verbose output.
+    #     Returns
+    #     -------
+    #     trajectory
+    #         Trajectory object
+    #     """
 
-        traj = Trajectory(traj_dir, self.lattice)
-        traj.load(cache=cache, verbose=verbose)
-        return traj
+    #     traj = Trajectory(traj_dir, self.lattice)
+    #     traj.load(cache=cache, verbose=verbose)
+    #     return traj
 
-    def _load_trajectories_parallel(self, cache=True, workers=None, verbose=False):
-        """
-        Load multiple trajectories in parallel.
-        Parameters
-        ----------
-        cache : bool, default True
-            If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
-            If False, load from raw simulation data.
-        workers : int, optional
-            Number of parallel workers. If None, uses all available cores.
-        verbose : bool, optional
-            If True, print verbose output.
-            Target data to load (default: 'trajs')
-        workers : int, optional
-            Number of parallel workers. If None, uses all available cores.
-        verbose : bool, optional
-            If True, print verbose output.
+    # def _load_trajectories_parallel(self, cache=True, workers=None, verbose=False):
+    #     """
+    #     Load multiple trajectories in parallel.
+    #     Parameters
+    #     ----------
+    #     cache : bool, default True
+    #         If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
+    #         If False, load from raw simulation data.
+    #     workers : int, optional
+    #         Number of parallel workers. If None, uses all available cores.
+    #     verbose : bool, optional
+    #         If True, print verbose output.
+    #         Target data to load (default: 'trajs')
+    #     workers : int, optional
+    #         Number of parallel workers. If None, uses all available cores.
+    #     verbose : bool, optional
+    #         If True, print verbose output.
             
-        Returns
-        -------
-        list of trajectories
-            Loaded trajectories
-        """
+    #     Returns
+    #     -------
+    #     list of trajectories
+    #         Loaded trajectories
+    #     """
 
-        if len(self.traj_dirs) == 0:
-            return []
-        if workers is None:
-            workers = mp.cpu_count()
+    #     if len(self.traj_dirs) == 0:
+    #         return []
+    #     if workers is None:
+    #         workers = mp.cpu_count()
 
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs, 
-                                      [cache]*len(self.traj_dirs), [verbose]*len(self.traj_dirs)))
+    #     with ProcessPoolExecutor(max_workers=workers) as executor:
+    #         trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs, 
+    #                                   [cache]*len(self.traj_dirs), [verbose]*len(self.traj_dirs)))
 
-        return trajs
+    #     return trajs
 
-    def load(self, cache=True, workers=mp.cpu_count(), verbose=False):
+    # def load_mp(self, cache=True, workers=mp.cpu_count(), verbose=False):
+    #     """
+    #     Load trajectory data with caching support.
+
+    #     Parameters
+    #     ----------
+    #     cache : bool, default True
+    #         If True, load cached trajectory data if available; cache trajectory data if not already cached.
+    #         If False, load from raw simulation data.
+    #     workers : int or None, default mp.cpu_count()
+    #         Number of parallel workers to use for loading.
+    #         If None, load sequentially.
+    #     verbose : bool, default False
+    #         If True, print detailed loading information.
+    #     """
+
+    #     # Determine cache file path and extension
+    #     print(f"Loading simulation {self.dir.name} with caching {'enabled' if cache else 'disabled'}...")
+
+    #     # Load trajectories from files
+    #     if verbose:
+    #         print(f"Loading {len(self.traj_dirs)} trajectories...")
+    #         print(f"  Loading mode: {'sequential' if workers is None else 'parallel with ' + str(workers) + ' workers'}")
+
+    #     if workers is not None:
+    #         # Use parallel loading
+    #         self.trajectories = self._load_trajectories_parallel(cache=cache, workers=workers, verbose=verbose)
+    #     else:
+    #         # Sequential loading
+    #         self.trajectories = []
+    #         for traj_dir in self.traj_dirs:
+    #             self.trajectories.append(self._load_single_trajectory(traj_dir, cache=cache, verbose=verbose))
+    #     if verbose:
+    #         print(f"Loaded {len(self.trajectories)} trajectories")
+    #         print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
+
+    def load(self, cache=True, verbose=False):
         """
         Load trajectory data with caching support.
 
@@ -216,9 +256,6 @@ class Simulation:
         cache : bool, default True
             If True, load cached trajectory data if available; cache trajectory data if not already cached.
             If False, load from raw simulation data.
-        workers : int or None, default mp.cpu_count()
-            Number of parallel workers to use for loading.
-            If None, load sequentially.
         verbose : bool, default False
             If True, print detailed loading information.
         """
@@ -229,19 +266,13 @@ class Simulation:
         # Load trajectories from files
         if verbose:
             print(f"Loading {len(self.traj_dirs)} trajectories...")
-            print(f"  Loading mode: {'sequential' if workers is None else 'parallel with ' + str(workers) + ' workers'}")
 
-        if workers is not None:
-            # Use parallel loading
-            self.trajectories = self._load_trajectories_parallel(cache=cache, workers=workers, verbose=verbose)
-        else:
-            # Sequential loading
-            self.trajectories = []
-            for traj_dir in self.traj_dirs:
-                self.trajectories.append(self._load_single_trajectory(traj_dir, cache=cache, verbose=verbose))
+        for traj in self.trajectories.values():
+            traj.load(cache=cache, verbose=verbose)
+
         if verbose:
             print(f"Loaded {len(self.trajectories)} trajectories")
-            print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
+            print(f"  Total states: {sum(len(t.states) for t in self.trajectories.values())}")
 
 
     # ------------------------------------------------------------------
@@ -692,7 +723,7 @@ class Simulation:
         traj_info = f", {n_trajs} trajectories with {n_states} states in total)"
         
         return (
-            f"simulation(sim= {self.dir.name}, "
+            f"simulation(sim={self.dir.name}, "
             f"T={self.metadata['temperature']}K, "
             f"θ={self.metadata['coverage']:.3f})"
             + traj_info

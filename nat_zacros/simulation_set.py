@@ -164,40 +164,6 @@ class SimulationSet:
         # This avoids KeyError when code expects an entry per simulation unless user overrides.
         self.fractions_eq = {key: None for key in self.simulations.keys()}
         
-    def _initialize_lattice(self):
-        """Find the first available simulation and initialize the shared lattice from its first trajectory."""
-        if not hasattr(self, 'metadata') or not self.metadata:
-            return
-
-        # Use the first simulation number from metadata
-        sn = self.metadata[0]['simulation_number']
-        sim_folder = self.data_path / self.simset_dir / f"{sn}"
-        
-        if not sim_folder.exists():
-            # If the directory doesn't exist yet, we can't initialize the shared lattice.
-            # This is common if the user hasn't extracted the simulations.
-            if self.verbose:
-                print(f"Warning: Shared lattice folder not found at {sim_folder}. Lattice will be initialized on load.")
-            return
-
-        # Find first trajectory directory
-        try:
-            traj_dirs = sorted([
-                d for d in sim_folder.iterdir() 
-                if d.is_dir() and d.name.startswith(self.traj_dir_pfx + '_')
-            ])
-            if traj_dirs:
-                self.lattice = Lattice(traj_dirs[0])
-                if not self.lattice.is_defined:
-                    print(f"Warning: Failed to define lattice from {traj_dirs[0]}.")
-                    self.lattice = None
-            elif self.verbose:
-                print(f"No trajectory directories found in {sim_folder} for shared lattice initialization.")
-        except Exception as e:
-            if self.verbose:
-                print(f"Error during shared lattice initialization: {e}")
-            self.lattice = None
-
     def _parse_cache_header(self, file_path, verbose=False):
         """
         Parse parameters from the first line of a cache file.
@@ -387,8 +353,8 @@ class SimulationSet:
         # Format: dictionary of simulation-specific dictionaries
         sim_dict = {}
         for entry in log_entries:
-            sn = entry[0]
-            sdir = Path(self.data_path) / self.simset_dir / f'{sn}'
+            sn = str(entry[0])
+            sdir = Path(self.data_path) / self.simset_dir / sn
             md = {
                 'job_name': entry[1],
                 'lattice_dimensions': entry[2],  # [nx, ny]
@@ -405,26 +371,6 @@ class SimulationSet:
         return sim_dict
             
             
-    def _get_simulation_numbers(self, simulations=None):
-        """
-        Helper to normalize simulation input into a list of integers.
-
-        Parameters
-        ----------
-        simulations : int, list[int], 'all', or None
-            The simulation specification to normalize.
-
-        Returns
-        -------
-        list[int]
-            List of simulation numbers.
-        """
-        if simulations is None or simulations == 'all':
-            return sorted([md['simulation_number'] for md in self.metadata])
-        if isinstance(simulations, int):
-            return [simulations]
-        return sorted(list(simulations))
-
     def clear_traj_cache(self, simulations=None, verbose=False):
         """
         Remove internal trajectory cache files that speed up loading.
@@ -717,30 +663,28 @@ class SimulationSet:
         cache : bool, default True
             If True, load cached trajectory data if available; cache trajectory data if not already cached.
             if False, load from raw simulation data.
-        simulations : int, list[int], 'all', or None
-            Specification of simulations to load; None or 'all' => load all in set.
+        simulations : Any, list[Any] or None
+            Specification of simulations to load; None => load all in set.
         verbose : bool, default False
             If True, print detailed loading information.
         workers : int, default mp.cpu_count()
             Number of worker processes to use for parallel loading.
             If None, load serially.
         """
-        sim_nums = self._get_simulation_numbers(simulations)
-        md_to_load = [md for md in self.metadata if md['simulation_number'] in sim_nums]
 
-        # Ensure lattice is initialized if possible
-        if self.lattice is None:
-            self._initialize_lattice()
-
-        for md in md_to_load:
-            sn = md['simulation_number']
-            if sn not in self.simulations:
-                sim_folder = Path(self.data_path) / self.simset_dir / f"{sn}"
-                sim = Simulation(sim_folder, metadata=md, traj_dir_pfx=self.traj_dir_pfx, lattice=self.lattice)
-                self.simulations[sn] = sim
+        # Check the simulations argument
+        if simulations is None:
+            simulations = self.simulations.keys()
+        elif not isinstance(simulations, list):
+            simulations = [simulations]
             
-            # Load the simulation data (handles its own caching internally)
-            self.simulations[sn].load(cache=cache, workers=workers, verbose=verbose) 
+        # Load simulations selected
+        for key in simulations:
+            if key in self.simulations.keys():
+                self.simulations[key].load(cache=cache, verbose=verbose)
+            else:
+                print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
+
 
     def unload(self, simulations=None):
         """
