@@ -379,19 +379,31 @@ class SimulationSet:
 
         Parameters
         ----------
-        simulations : int, list[int], 'all', or None
-            Simulation numbers to clear; None or 'all' => all simulations in set.
+        simulations : Any, list[Any], or None
+            Simulation numbers to clear; None => all simulations in set.
         verbose : bool
             Print each deleted file when True.
         """
-        sim_nums = self._get_simulation_numbers(simulations)
-        from .simulation import Simulation as _Sim
-        
+
         if verbose:
             print(f"Deleting trajectories in {(self.data_path / self.simset_dir).as_posix()}")
         
+        # Check the simulations argument
+        if simulations is None:
+            simulations = self.simulations.keys()
+        elif not isinstance(simulations, list):
+            simulations = [simulations]
+            
+        # Load simulations selected
+        for key in simulations:
+            if key in self.simulations.keys():
+                self.simulations[key].load(cache=cache, verbose=verbose)
+            else:
+                print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
+
+
         total_count = 0
-        for sn in sim_nums:
+        for sn in simulations if simulations is not None and simulations != 'all' else self.simulations.keys():
             # Check if simulation is already loaded to prefer instance method (for testing/consistency)
             sim_obj = self.simulations.get(sn)
             
