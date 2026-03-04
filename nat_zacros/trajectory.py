@@ -178,6 +178,39 @@ class Trajectory:
             print(f'Error loading trajectory from {str(self.dir)}: {e}')
 
 
+    def unload(self, verbose=False):
+        """
+        Unload trajectory data.
+
+        Parameters
+        ----------
+        verbose : bool, default False
+            If True, print detailed loading information.
+        """
+
+        n_states = len(self.states)
+        self.states = []
+        self.times = np.array([])
+        self.energies = np.array([])
+        if verbose:
+            print(f" {self.dir.name} with {n_states} states unloaded.")
+
+
+    def clear_cache(self, verbose=False):
+        """
+        Clear cached trajectory data.
+
+        Parameters
+        ----------
+        verbose : bool, default False
+            If True, print detailed clearing information.
+        """
+        if self.cache_file.exists():
+            self.cache_file.unlink()
+            if verbose:
+                print(f"Cleared cache for trajectory {self.dir.name}")
+
+
 
         
     # ==========================================================================

@@ -163,7 +163,20 @@ class SimulationSet:
         # Initialize equilibration fractions dictionary with default None for each simulation
         # This avoids KeyError when code expects an entry per simulation unless user overrides.
         self.fractions_eq = {key: None for key in self.simulations.keys()}
-        
+
+    def _arg_to_list(self, arg):
+        """
+        Helper method converts an argument to a list of simulation keys.
+        """
+
+        if arg is None:
+            arg = list(self.simulations.keys())
+        elif not isinstance(arg, list):
+            arg = [arg]
+
+        return arg
+
+
     def _parse_cache_header(self, file_path, verbose=False):
         """
         Parse parameters from the first line of a cache file.
@@ -374,8 +387,7 @@ class SimulationSet:
     def clear_traj_cache(self, simulations=None, verbose=False):
         """
         Remove internal trajectory cache files that speed up loading.
-
-        This deletes per-trajectory `traj.pkl` files inside each `traj_*` folder.
+        This deletes per-trajectory `traj.pkl` files inside each trajectory folder.
 
         Parameters
         ----------
@@ -385,57 +397,15 @@ class SimulationSet:
             Print each deleted file when True.
         """
 
-        if verbose:
-            print(f"Deleting trajectories in {(self.data_path / self.simset_dir).as_posix()}")
-        
-        # Check the simulations argument
-        if simulations is None:
-            simulations = self.simulations.keys()
-        elif not isinstance(simulations, list):
-            simulations = [simulations]
-            
-        # Load simulations selected
-        for key in simulations:
+        # Clear cache for selected simulations
+        total_count = 0
+        for key in self._arg_to_list(simulations):
             if key in self.simulations.keys():
-                self.simulations[key].load(cache=cache, verbose=verbose)
+                total_count += self.simulations[key].clear_traj_cache(verbose=verbose)
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
-
-        total_count = 0
-        for sn in simulations if simulations is not None and simulations != 'all' else self.simulations.keys():
-            # Check if simulation is already loaded to prefer instance method (for testing/consistency)
-            sim_obj = self.simulations.get(sn)
-            
-            sim_path = Path(self.data_path) / self.simset_dir / str(sn)
-            pfx = getattr(sim_obj, 'traj_dir_pfx', self.traj_dir_pfx)
-            
-            # Use Simulation.clear_traj_cache_path directly to get the list for formatting
-            deleted_files = _Sim.clear_traj_cache_path(sim_path, traj_dir_pfx=pfx, verbose=False)
-            
-            if sim_obj is not None:
-                # Still call the instance method if it's a mock or has side effects (like in tests)
-                # This ensures tests like SpySim pass.
-                sim_obj.clear_traj_cache(verbose=verbose)
-            
-            if verbose and deleted_files:
-                # Format each deleted file as sn\traj_i\traj.pkl
-                file_strs = [f"{sn}\\{f.parent.name}\\{f.name}" for f in deleted_files]
-                print("; ".join(file_strs) + ";")
-            
-            total_count += len(deleted_files)
-
-        if total_count > 0:
-            if simulations is not None:
-                sim_display = str(sim_nums) if len(sim_nums) <= 10 else f"{sim_nums[:10]}... (+{len(sim_nums)-10} more)"
-                sim_msg = f"for simulations: {sim_display}"
-            else:
-                sim_msg = "for all simulations"
-            print(f"Cleared {total_count} trajectory cache file(s) {sim_msg}.")
-        else:
-            print("No trajectory cache files found to clear.")
-
-        return total_count
+        print(f"Deleted {total_count} trajectory cache file(s).")
 
     def clear_results(self, target='all', simulations=None, verbose=False):
         """
@@ -457,51 +427,38 @@ class SimulationSet:
         int
             Total number of files deleted.
         """
-        valid_keys = set(self._properties.keys())
 
         # Normalize target
-        if isinstance(target, list):
+        if target == 'all':
+            formats_to_clear = list(self._properties.keys())
+        elif isinstance(target, list):
             formats_to_clear = target
-        elif isinstance(target, str):
-            formats_to_clear = list(valid_keys) if target == 'all' else [target]
         else:
-            raise TypeError("target must be str or list of str")
+            formats_to_clear = [target]
+
 
         # Validate
-        formats_to_clear = [f for f in formats_to_clear if f in valid_keys]
+        counter = 0
+        for key in formats_to_clear:
+            if key not in self._properties.keys():
+                print(f"Warning: target '{key}' is not a recognized property. Ignoring.")
+            else:
+                counter += 1
 
-        if not formats_to_clear:
-            return 0
+        if counter == 0:
+            print("No valid targets specified for clearing. No files deleted.")
+            return
 
-        # get numbers of the simulations we want to clear results for; default to all simulations in set if not specified
-        sim_nums = self._get_simulation_numbers(simulations)
+        counter = 0
+        for key in self._arg_to_list(simulations):
+            if key in self.simulations.keys():
+                self.simulations[key].clear_results(target=target, verbose=verbose)
+                counter += 1
+            else:
+                print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
-        total_count = 0
-        if verbose:
-            print(f"Clearing results in {(self.data_path / self.results_dir).as_posix()}")
+        print(f"Deleted results for {counter} simulation(s).")
 
-        for sn in sim_nums:
-            sim_res_folder = Path(self.data_path) / self.results_dir / str(sn)
-            
-            # Use the static path method to clear without needing a lot of RAM
-            # Note: We pass the whole list of formats to clear in one call to the helper
-            count = Simulation.clear_results_path(sim_res_folder, formats_to_clear, 
-                                                  verbose=verbose)
-            total_count += count
-
-        # Summary message
-        if simulations is not None:
-            sim_display = str(sim_nums) if len(sim_nums) <= 10 else f"{sim_nums[:10]}... (+{len(sim_nums)-10} more)"
-            sim_msg = f"for simulations: {sim_display}"
-        else:
-            sim_msg = "for all simulations"
-
-        if total_count > 0:
-            print(f"Cleared {total_count} '{target}' result file(s) {sim_msg}.")
-        else:
-            print(f"No '{target}' result files found {sim_msg}.")
-
-        return total_count
 
     def check_cache_status(self, simulations=None):
         """
@@ -684,36 +641,31 @@ class SimulationSet:
             If None, load serially.
         """
 
-        # Check the simulations argument
-        if simulations is None:
-            simulations = self.simulations.keys()
-        elif not isinstance(simulations, list):
-            simulations = [simulations]
-            
         # Load simulations selected
-        for key in simulations:
+        for key in self._arg_to_list(simulations):
             if key in self.simulations.keys():
                 self.simulations[key].load(cache=cache, verbose=verbose)
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
 
-    def unload(self, simulations=None):
+    def unload(self, simulations=None, verbose=False):
         """
         Unload specified simulations from memory.
         
         Parameters
         ----------
-        simulations : int, list[int], 'all', or None
-            Specification of simulations to unload; None or 'all' => unload all.
+        simulations : Any, list[Any] or None
+            Specification of simulations to unload; None => unload all in set.
+        verbose : bool, default False
+            If True, print detailed unloading information.
         """
-        if simulations is None or simulations == 'all':
-            self.simulations = {}
-        else:
-            sim_nums = self._get_simulation_numbers(simulations)
-            for sn in sim_nums:
-                if sn in self.simulations:
-                    del self.simulations[sn]
+        # Unload simulations selected
+        for key in self._arg_to_list(simulations):
+            if key in self.simulations.keys():
+                self.simulations[key].unload(verbose=verbose)
+            else:
+                print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
     def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
         """Plot ensemble-averaged energy vs time for the loaded simulations.

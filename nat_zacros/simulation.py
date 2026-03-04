@@ -274,95 +274,59 @@ class Simulation:
             print(f"Loaded {len(self.trajectories)} trajectories")
             print(f"  Total states: {sum(len(t.states) for t in self.trajectories.values())}")
 
-
-    # ------------------------------------------------------------------
-    # Cache / results helpers at Simulation level
-    # ------------------------------------------------------------------
-    @staticmethod
-    def clear_traj_cache_path(sim_folder, traj_dir_pfx='traj', verbose=False):
-        """Remove internal trajectory cache files from a folder.
-
-        This deletes per-trajectory ``traj.pkl`` files inside each ``traj_*`` folder.
+    def unload(self, verbose=False):
+        """
+        Unload trajectory data.
 
         Parameters
         ----------
-        sim_folder : str or Path
-            Path to the simulation folder.
-        traj_dir_pfx : str, optional
-            Prefix for trajectory directories (default ``'traj'``).
-        verbose : bool, optional
-            If True, print each deleted cache file.
-
-        Returns
-        -------
-        list of Path
-            List of deleted cache files.
+        verbose : bool, default False
+            If True, print detailed loading information.
         """
-        sim_folder = Path(sim_folder)
-        if not sim_folder.exists():
-            return []
 
-        deleted = []
-        for d in sim_folder.iterdir():
-            if d.is_dir() and d.name.startswith(traj_dir_pfx + '_'):
-                cf = d / 'traj.pkl'
-                if cf.exists():
-                    cf.unlink()
-                    deleted.append(cf)
-                    if verbose:
-                        print(f"Deleted trajectory cache: {cf}")
-        return deleted
+        # Unload trajectories from files
+        if verbose:
+            print(f"Unloading simulation {self.dir.name} from memory...")
 
-    def clear_traj_cache(self_or_folder, traj_dir_pfx='traj', verbose=False):
+        for traj in self.trajectories.values():
+            traj.unload(verbose=verbose)
+
+        if verbose:
+            print(f"Unloaded {len(self.trajectories)} trajectories")
+            print(f"  Total states: {sum(len(t.states) for t in self.trajectories.values())}")
+
+
+
+    def clear_traj_cache(self, verbose=False):
         """Clear trajectory cache files.
 
-        This method is polymorphic so that it can be called in two ways:
-        1. **Path-level** (class call) – first argument is simulation folder path.
-           Example: Simulation.clear_traj_cache('/path/to/run', traj_dir_pfx='traj')
-        2. **Instance-level** – invoked on a Simulation object.
-           Example: sim.clear_traj_cache()
         """
-        if isinstance(self_or_folder, Simulation):
-            sim_folder = self_or_folder.dir
-            pfx = self_or_folder.traj_dir_pfx
-            v = verbose
-        else:
-            sim_folder = self_or_folder
-            pfx = traj_dir_pfx
-            v = verbose
+        # Clearing cache from files
+        if verbose:
+            print(f"Clearing trajectory cache for simulation {self.dir.name}...")
 
-        deleted = Simulation.clear_traj_cache_path(sim_folder, traj_dir_pfx=pfx, verbose=v)
-        return len(deleted)
+        for traj in self.trajectories.values():
+            traj.clear_cache(verbose=verbose)
 
-    @staticmethod
-    def clear_results_path(sim_folder, properties, verbose=False):
-        """Delete user-visible result files in a simulation folder.
+        return len(self.trajectories)  # Return number of trajectories cleared
+    
+    def clear_results(self, target='all', verbose=False):
+        """Clear cached results files.
 
         Parameters
         ----------
-        sim_folder : str or Path
-            Path to the simulation folder.
-        target : str or list
-            Which result types to remove. Supported keys: 'energy', 'rdf', 'accessibility', 'gref', 'all'.
-        verbose : bool
-            Print deleted filenames when True.
+        target : Any or list of Any, default 'all'
+            Target result(s) to clear. Can be a single property (e.g., 'energy', 'rdf') or a list of properties.
+            If 'all', clears all cached results for the simulation.
+        verbose : bool, default False
+            If True, print detailed information about cleared results.
         """
+        
+        if verbose:
+            print(f"Clearing cached results for simulation {self.dir.name}...")
 
-        sim_folder = Path(sim_folder)
-        count = 0
-        for p in properties:
-            cf = sim_folder / f'{p}.dat'
-            if cf.exists():
-                cf.unlink()
-                count += 1
-                if verbose:
-                    print(f"Deleted results file: {cf}")
-        return count
+        
 
-    def clear_results(self, target='all', results_files=None, verbose=False, search_dir=None):
-        """Instance wrapper for `clear_results_path` that operates on this simulation."""
-        d = search_dir if search_dir is not None else self.dir
-        return self.clear_results_path(d, target=target, results_files=results_files, verbose=verbose)
 
     def get_g_ref(self, r_max=None, dr=0.1):
         """
