@@ -42,7 +42,7 @@ class SimulationSet:
         Suffix for energy data files (default: 'energy.dat').
         If None, energy data files are not created.
     fractions_eq : dict
-        Dictionary mapping simulation numbers to equilibrium fractions.
+        Dictionary mapping simulation keys to equilibrium fractions.
     log_file : str  
         name of the log file (default: 'jobs.log')
     metadata : list of dictionaries
@@ -177,16 +177,16 @@ class SimulationSet:
         return arg
 
 
-    def _parse_cache_header(self, file_path, verbose=False):
+    def _parse_results_header(self, file_path, verbose=False):
         """
-        Parse parameters from the first line of a cache file.
+        Parse parameters from the first line of a results file.
 
         Format expected: # Parameters: key1=val1 key2=val2 ...
 
         Parameters
         ----------
         file_path : str or Path
-            Path to the cache file.
+            Path to the results file.
         verbose : bool, optional
             If True, prints warnings on failure.
 
@@ -229,7 +229,8 @@ class SimulationSet:
                 print(f"Warning: Failed to parse cache header in {file_path}: {e}")
             return {}
 
-    def get(self, property_key, pars_dict=None, simulations=None, use_fraction=False, save=True, verbose=False):
+    def get(self, property_key, pars_dict=None, simulations=None, use_fraction=False, save=True,
+            autoload=False, cache=True, verbose=False):
         """
         Compute an ensemble-averaged property with caching support.
 
@@ -243,12 +244,16 @@ class SimulationSet:
             Key for the property to compute (e.g., 'energy', 'rdf', 'accessibility').
         pars_dict : dict, optional
             Dictionary of parameters to pass to the property computation method (default is None).
-        simulations : int, list[int], 'all', or None
-            Specification of simulations to process; None or 'all' => process all loaded simulations.
+        simulations : Any, list[Any], or None
+            Simulation numbers to clear; None => all simulations in set.
         use_fraction : bool, optional
             Whether to use the equilibration fraction for the computation (default is False).
         save : bool, optional
             Whether to save the computed property to a cache file (default is True).
+        autoload : bool, optional
+            Whether to automatically load simulations that are not currently loaded (default is False).
+        cache : bool, optional
+            Whether to use caching (default is True).
         verbose : bool, optional
             Whether to print detailed information during computation (default is False).
 
@@ -263,76 +268,72 @@ class SimulationSet:
         ValueError
             If the property_key is not recognized.
         """
-        
-        # Collect results for selected simulations
-        if simulations is None:
-            # Default to all simulations that are currently LOADED (in numerical order)
-            sim_nums = self.loaded_ids
-        else:
-            sim_nums = self._get_simulation_numbers(simulations)
-
-        # Autoload missing simulations
-        missing = [sn for sn in sim_nums if sn not in self.simulations]
-        if missing:
-            if verbose:
-                print(f"Autoloading {len(missing)} simulations...")
-            self.load(simulations=missing, verbose=verbose)
-
-        # Process simulations in numerical order
-        sims_to_process = [self.simulations[sn] for sn in sim_nums if sn in self.simulations]
-        
-        results = []
-        for sim in sims_to_process:
-            # Setup paths
-            sim_folder = Path(self.data_path) / self.results_dir / str(sim.metadata['simulation_number'])
-            
-            # Get the method to compute the property from the Simulation class instance
-            try:
-                method = getattr(sim, self._properties[property_key])
-            except (KeyError, AttributeError):
-                raise ValueError(f"Property {property_key} not supported.")
 
 
-            if save:
-                cache_file = sim_folder / (property_key + '.dat')
-            else:
-                cache_file = None
+        results = {}
+        for key in self._arg_to_list(simulations):
 
-            # Handle fraction logic
-            target_params = pars_dict.copy() if pars_dict is not None else {}
-            if use_fraction:
-                fraction = self.fractions_eq[sim.metadata["simulation_number"]]
-                if sim.fraction_eq_is_invalid(fraction, property=property_key, file=cache_file, verbose=verbose):
-                    results.append(None)
-                    continue
-                target_params['fraction'] = fraction
+            if key in self.simulations.keys():
 
-            # Check cache validity
-            cached_params = self._parse_cache_header(cache_file)
-            cache_valid = bool(cached_params) and all(
-                np.isclose(cached_params.get(k, -1e9), v) if isinstance(v, (int, float))
-                else cached_params.get(k) == v
-                for k, v in target_params.items()
-            )
-
-            if cache_valid:
+                sim = self.simulations[key]
+                # Check if simulation is loaded; if not, either autoload or skip based on the autoload flag
+                if not sim.is_loaded:
+                    if autoload:
+                        print(f"Simulation #{key} is not loaded. Loading now...")
+                        sim.load(cache=cache, verbose=verbose)
+                    else:
+                        print(f"Simulation #{key} is not loaded. Skipping.")
+                        continue
+                
+                # Get the method to compute the property from the Simulation class instance
                 try:
-                    # Skiprows=1 if it doesn't have an extra header line beyond Parameters
-                    # Actually RDF and Energy have multiple header lines. np.loadtxt handles # comments automatically.
-                    data = np.loadtxt(cache_file, unpack=True)
-                    if verbose:
-                        print(f"Loaded {property_key} for simulation #{sim.metadata['simulation_number']} from cache...")
-                    results.append(data)
-                    continue
-                except Exception:
-                    pass
+                    method = getattr(sim, self._properties[property_key])
+                except (KeyError, AttributeError):
+                    raise ValueError(f"Property {property_key} not supported.")
 
-            # Recalculate
-            if verbose:
-                print(f"Calculating {property_key} for simulation #{sim.metadata['simulation_number']}...")
-            
-            data = method(pars_dict=target_params, file=cache_file)
-            results.append(data)
+                if save:
+                    results_file = self.data_path / self.results_dir / sim.dir.name / (property_key + '.dat')
+                else:
+                    results_file = None
+
+                # Handle fraction logic
+                target_params = pars_dict.copy() if pars_dict is not None else {}
+                if use_fraction:
+                    fraction = self.fractions_eq[key]
+                    if sim.fraction_eq_is_invalid(fraction, property=property_key, file=results_file, verbose=verbose):
+                        continue
+                    target_params['fraction'] = fraction
+
+                # Check results file validity
+                res_params = self._parse_results_header(results_file)
+                res_valid = bool(res_params) and all(
+                    np.isclose(res_params.get(k, -1e9), v) if isinstance(v, float) else res_params.get(k) == v
+                    for k, v in target_params.items()
+                )
+
+                if res_valid:
+                    try:
+                        # Skiprows=1 if it doesn't have an extra header line beyond Parameters
+                        # Actually RDF and Energy have multiple header lines. np.loadtxt handles # comments automatically.
+                        data = np.loadtxt(results_file, unpack=True)
+                        if verbose:
+                            print(f"Loaded {property_key} for simulation #{key} from results...")
+                        results[key] = data
+                        continue
+                    except Exception:
+                        pass
+
+                # Recalculate
+                if verbose:
+                    print(f"Calculating {property_key} for simulation #{key}...")
+                
+                data = method(pars_dict=target_params, file=results_file)
+                results[key] = data
+
+            else:
+                print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
+
+
 
         return results
 
@@ -501,8 +502,8 @@ class SimulationSet:
         Find equilibrium fraction by fitting ensemble-averaged energy vs time to an biexponential decay model.
         Parameters
         ----------
-        energies_vs_time : list of tuples
-            Each tuple contains (times, energies, energies_std) for a simulation.
+        energies_vs_time : dict
+            A dictionary where keys are simulation identifiers and values are tuples containing (times, energies, energies_std).
         threshold : float, default 0.01
             Threshold fraction of the asymptotic value (a0) of the fitting function to define equilibrium.
         min_equilibrium_points : int, default 10
@@ -594,13 +595,12 @@ class SimulationSet:
                 print(f"Fit failed: {e}")
                 return None, None, None, None
 
-        fit_results = []
-        # Use sorted loaded_ids to match the order of energies_vs_time (which usually comes from get())
-        for isim, sn in enumerate(self.loaded_ids):
-            sim = self.simulations[sn]
+        fit_results = {}
+
+        for key in energies_vs_time.keys():
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
-            times, energies, energies_std = energies_vs_time[isim]
+            times, energies, energies_std = energies_vs_time[key]
 
             # --- fit
             eq_idx, fit_params, fit_result, exp_terms = find_equilibrium_exp_decay(
@@ -612,12 +612,12 @@ class SimulationSet:
             )
 
             if eq_idx is None:
-                self.fractions_eq[sim.metadata["simulation_number"]] = 0.0
+                self.fractions_eq[key] = 0.0
             else:
-                self.fractions_eq[sim.metadata["simulation_number"]] = \
+                self.fractions_eq[key] = \
                     (len(energies) - eq_idx) / len(energies)
                 
-            fit_results.append((eq_idx, fit_params, fit_result, exp_terms))
+            fit_results[key] = (eq_idx, fit_params, fit_result, exp_terms)
 
 
         return fit_results
@@ -702,18 +702,17 @@ class SimulationSet:
             return
 
         # Iterate over loaded simulations in numerical order
-        loaded_ids = self.loaded_ids
-        for isim, sn in enumerate(loaded_ids):
-            sim = self.simulations[sn]
+        for isim, key in enumerate(energies_vs_time.keys()):
+            sim = self.simulations[key]
 
             # Get ensemble-averaged energy vs time and fraction for this simulation
-            times, energies, energies_std = energies_vs_time[isim]
+            times, energies, energies_std = energies_vs_time[key]
 
             if show_eq:
                 try:
-                    fraction = self.fractions_eq[sim.metadata["simulation_number"]] if self.fractions_eq[sim.metadata["simulation_number"]] is not None else 0.0
+                    fraction = self.fractions_eq[key] if self.fractions_eq[key] is not None else 0.0
                 except KeyError:
-                    raise KeyError(f"Equilibration fraction for simulation {sim.metadata['simulation_number']} not found in fractions_eq dictionary.")
+                    raise KeyError(f"Equilibration fraction for simulation {key} not found in fractions_eq dictionary.")
             else:
                 fraction = 0.0
 
@@ -731,7 +730,7 @@ class SimulationSet:
                 
             # Plot energy versus percent of total time on bottom axis; show time on top axis
             ax.grid()
-            title = f'Simulation #{sim.metadata["simulation_number"]}:' \
+            title = f'Simulation #{key}:' \
                     fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
             if show_eq:
                 title += f' ({fraction*100:.0f}%)'
@@ -779,7 +778,7 @@ class SimulationSet:
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
-        for idx in range(len(loaded_ids), total_plots):
+        for idx in range(len(energies_vs_time.keys()), total_plots):
             ax = axes[idx//ncols, idx%ncols]
             ax.axis('off')
 
@@ -937,6 +936,6 @@ class SimulationSet:
     @property
     def loaded_ids(self):
         """Return list of simulation numbers currently loaded in memory."""
-        return sorted(list(self.simulations.keys()))
+        return sorted([key for key in self.simulations.keys() if self.simulations[key].is_loaded])
 
 

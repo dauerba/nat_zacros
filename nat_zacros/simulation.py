@@ -98,6 +98,7 @@ class Simulation:
 
         self.dir = Path(dir)
         self.is_valid = True  # Assume the simulation is valid initially
+        self.is_loaded = False
         self.traj_dir_pfx = traj_dir_pfx
         self.lattice = lattice
         self.trajectories = {}
@@ -269,6 +270,7 @@ class Simulation:
 
         for traj in self.trajectories.values():
             traj.load(cache=cache, verbose=verbose)
+        self.is_loaded = True
 
         if verbose:
             print(f"Loaded {len(self.trajectories)} trajectories")
@@ -290,6 +292,7 @@ class Simulation:
 
         for traj in self.trajectories.values():
             traj.unload(verbose=verbose)
+        self.is_loaded = False
 
         if verbose:
             print(f"Unloaded {len(self.trajectories)} trajectories")
