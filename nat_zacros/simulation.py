@@ -76,7 +76,7 @@ class Simulation:
     """
 
 
-    def __init__(self, dir, metadata, traj_dir_pfx='traj', lattice=None):
+    def __init__(self, dir, metadata, traj_dir_pfx='traj', results_dir=None, lattice=None):
         """
         Initialize a simulation.
         
@@ -97,6 +97,7 @@ class Simulation:
         """
 
         self.dir = Path(dir)
+        self.results_dir = results_dir if results_dir is not None else self.dir
         self.is_valid = True  # Assume the simulation is valid initially
         self.is_loaded = False
         self.traj_dir_pfx = traj_dir_pfx
@@ -313,21 +314,25 @@ class Simulation:
 
         return len(self.trajectories)  # Return number of trajectories cleared
     
-    def clear_results(self, target='all', verbose=False):
-        """Clear cached results files.
+    def clear_results(self, file, verbose=False):
+        """Clear cached results file.
 
         Parameters
         ----------
-        target : Any or list of Any, default 'all'
-            Target result(s) to clear. Can be a single property (e.g., 'energy', 'rdf') or a list of properties.
-            If 'all', clears all cached results for the simulation.
+        file : str or Path
+            Path to the results file to clear.
         verbose : bool, default False
             If True, print detailed information about cleared results.
         """
-        
-        if verbose:
-            print(f"Clearing cached results for simulation {self.dir.name}...")
 
+        file = Path(file)
+        if file.exists():
+            file.unlink()
+            if verbose:
+                print(f"Simulation {self.dir.name}: {file.name} deleted.")
+        else:
+            if verbose:
+                print(f"Simulation {self.dir.name}: {file.name} does not exist.")
         
 
 
@@ -440,7 +445,7 @@ class Simulation:
         
         # Compute RDF for each trajectory
         rdfs = []
-        for i, traj in enumerate(self.trajectories):
+        for traj in self.trajectories.values():
             r, g = traj.get_rdf(r_max=r_max, dr=dr, fraction=fraction, g_ref=g_ref)
             rdfs.append(g)
         
@@ -512,7 +517,7 @@ class Simulation:
         # Compute accessibility for each trajectory
         f13 = []
         f2  = []
-        for i, traj in enumerate(self.trajectories):
+        for traj in self.trajectories.values():
             freq_13, freq_2 = traj.get_accessibility_histogram(fraction=fraction)
             f13.append(freq_13)
             f2.append(freq_2)
@@ -611,8 +616,8 @@ class Simulation:
             )
         
         # Find common time range across all trajectories
-        end_time = min([traj.times[-1] for traj in self.trajectories])
-        start_time = max([traj.times[0] for traj in self.trajectories])
+        end_time = min([traj.times[-1] for traj in self.trajectories.values()])
+        start_time = max([traj.times[0] for traj in self.trajectories.values()])
         
         # Create time bins for discretization
         time_bins = np.linspace(start_time, end_time, n_bins + 1)
@@ -621,7 +626,7 @@ class Simulation:
         # STAGE 1: Intra-trajectory averaging
         # For each trajectory, bin its energy measurements and average within bins
         energy_hists = []
-        for traj in self.trajectories:
+        for traj in self.trajectories.values():
             times, energies = traj.get_energy_vs_time()
             
             # Initialize binned energy and sample counts for this trajectory

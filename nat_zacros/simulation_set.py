@@ -380,7 +380,8 @@ class SimulationSet:
                 }
 
             sim_dict[sn] = Simulation(sdir, metadata=md, 
-                                        traj_dir_pfx=self.traj_dir_pfx)
+                                        traj_dir_pfx=self.traj_dir_pfx,
+                                        results_dir=self.data_path /self.results_dir/ sn)
             
         return sim_dict
             
@@ -438,27 +439,25 @@ class SimulationSet:
             formats_to_clear = [target]
 
 
-        # Validate
         counter = 0
-        for key in formats_to_clear:
-            if key not in self._properties.keys():
-                print(f"Warning: target '{key}' is not a recognized property. Ignoring.")
+        for fmt in formats_to_clear:
+            if fmt not in self._properties.keys():
+                print(f"Warning: target '{fmt}' is not a recognized property. Ignoring.")
             else:
-                counter += 1
+                for key in self._arg_to_list(simulations):
+                    if key in self.simulations.keys():
+                        sim = self.simulations[key]
+                        fname = self.data_path / self.results_dir / sim.dir.name / (fmt + '.dat')
+                        sim.clear_results(fname, verbose=verbose)
+                        counter += 1
+                    else:
+                        print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
+
 
         if counter == 0:
             print("No valid targets specified for clearing. No files deleted.")
-            return
-
-        counter = 0
-        for key in self._arg_to_list(simulations):
-            if key in self.simulations.keys():
-                self.simulations[key].clear_results(target=target, verbose=verbose)
-                counter += 1
-            else:
-                print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
-
-        print(f"Deleted results for {counter} simulation(s).")
+        else:
+            print(f"Deleted results for {counter} simulation(s).")
 
 
     def check_cache_status(self, simulations=None):
@@ -667,7 +666,7 @@ class SimulationSet:
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
-    def plot_energy(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
+    def plot_energies(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
         """Plot ensemble-averaged energy vs time for the loaded simulations.
         Parameters
         ----------
@@ -786,7 +785,7 @@ class SimulationSet:
         plt.show()    
 
 
-    def plot_rdf(self, rdfs, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16):
+    def plot_rdfs(self, rdfs, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16):
         """Plot ensemble-averaged RDF for the loaded simulations.
         Parameters
         ----------
@@ -819,13 +818,12 @@ class SimulationSet:
             return
         
         # Iterate over loaded simulations in numerical order
-        loaded_ids = self.loaded_ids
-        for isim, sn in enumerate(loaded_ids):
-            sim = self.simulations[sn]
+        for isim, key in enumerate(rdfs.keys()):
+            sim = self.simulations[key]
 
-            data = rdfs[isim]
+            data = rdfs[key]
             ax = axes[isim//ncols, isim%ncols]
-            title = f'Simulation #{sim.metadata["simulation_number"]}:' \
+            title = f'Simulation #{key}:' \
                     fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
             ax.set_title(title, fontsize = title_fontsize)
 
@@ -840,7 +838,7 @@ class SimulationSet:
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
-        for idx in range(len(loaded_ids), total_plots):
+        for idx in range(len(rdfs), total_plots):
             ax = axes[idx//ncols, idx%ncols]
             ax.axis('off')
 
@@ -853,7 +851,7 @@ class SimulationSet:
         
         Parameters
         ----------
-        accessibilities : list of tuples
+        accessibilities : dictionary of tuples
             Each tuple contains (accessibility, frequency, frequency_std) for a simulation.
             accessibility is ndarray of vacant neighbor counts (0 to max_coordination).
             frequency is ndarray of frequencies for each accessibility level.
@@ -885,13 +883,12 @@ class SimulationSet:
             return
         
         # Iterate over loaded simulations in numerical order
-        loaded_ids = self.loaded_ids
-        for isim, sn in enumerate(loaded_ids):
-            sim = self.simulations[sn]
+        for isim, key in enumerate(accessibilities.keys()):
+            sim = self.simulations[key]
 
-            data = accessibilities[isim]
+            data = accessibilities[key]
             ax = axes[isim//ncols, isim%ncols]
-            title = f'Simulation #{sim.metadata["simulation_number"]}:' \
+            title = f'Simulation #{key}:' \
                     fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
             ax.set_title(title, fontsize=title_fontsize)
 
@@ -899,17 +896,20 @@ class SimulationSet:
                 ax.set_axis_off() 
                 ax.text(0.5, 0.5, 'No accessibility available', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
             else:
-                accessibility, frequency, frequency_std = data
+                frequency_13_avg, frequency_13_std,frequency_2_avg, frequency_2_std = data
                 # Plot bar chart with error bars
-                ax.bar(accessibility, frequency, yerr=frequency_std, capsize=5, alpha=0.7, color='steelblue', edgecolor='black')
+                accessibility = np.arange(len(frequency_13_avg))
+                ax.bar(accessibility, frequency_13_avg, yerr=frequency_13_std, capsize=5, alpha=0.7, color='steelblue', edgecolor='black', label='13')
+                ax.bar(accessibility, frequency_2_avg, yerr=frequency_2_std, capsize=5, alpha=0.7, color='lightcoral', edgecolor='black', label='2')
                 ax.set_xlabel('Number of vacant nearest neighbors')
                 ax.set_ylabel('Frequency')
                 ax.set_xticks(accessibility)
                 ax.grid(axis='y', alpha=0.3)
+                ax.legend()
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
-        for idx in range(len(loaded_ids), total_plots):
+        for idx in range(len(accessibilities), total_plots):
             ax = axes[idx//ncols, idx%ncols]
             ax.axis('off')
 
