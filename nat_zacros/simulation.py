@@ -663,6 +663,81 @@ class Simulation:
 
         return time_centers, energy_avg, energy_std
     
+
+    def get_ensemble_clusters(self, pars_dict=None, file=None):
+        """
+        Compute ensemble-averaged cluster properties.
+        
+        Parameters
+        ----------
+        pars_dict : dict, optional
+            Dictionary of parameters:
+            - cutoff : float, default the distance to the 3rd-neighbor shell
+                Distance cutoff for connectivity
+            - fraction : float, default 1.0
+                Fraction of trajectory data to use for RDF calculation (e.g., 0.5 for last half)
+            - method : str, default 'ckdtree'
+                Method to get clusters 
+        file : str or Path, optional
+            Path to save RDF data (r, g_avg, g_std, g_ref if normalize=True).
+            If None, data will not be saved to file (default).  
+
+        Returns
+        -------
+        freqs_avg : ndarray
+            Ensemble-averaged mean cluster size frequencies
+        freqs_std : ndarray
+            Sample Standard deviation of cluster size frequencies across trajectories
+        
+        Raises
+        ------
+        RuntimeError
+            If trajectories have not been loaded yet
+        """
+
+        # Set defaults and update from pars_dict
+        # If cutoff not provided, set to 3rd nn distance for the lattice
+        pars = {'cutoff': self.lattice.get_nn_distance(order=3), 
+                'fraction': 1.0,
+                'method':   'ckdtree'}
+        if pars_dict is not None:
+            pars.update(pars_dict)
+        
+        cutoff   =  pars['cutoff']
+        fraction =  pars['fraction']
+        method   =  pars['method']
+
+        n_trajs = len(self)        
+        if n_trajs == 0:
+            raise RuntimeError(
+                "No trajectories loaded. Call load_trajectories() first."
+            )
+        
+        
+        # Compute cluster size frequencies for each trajectory
+        freqs_avg = np.zeros(len(self.lattice))
+        freqs_std = np.zeros(len(self.lattice))
+        for traj in self.trajectories.values():
+            freqs = traj.get_cluster_size_freqs(cutoff=cutoff, fraction=fraction, method=method)
+            freqs_avg += freqs
+            freqs_std += freqs*freqs
+
+        # Gete average
+        freqs_avg /= n_trajs
+        
+        # Get sample standard deviation (note Bessel's correction in denominator)
+        freqs_std = np.sqrt((freqs_std - n_trajs*freqs_avg**2) / (n_trajs - 1))
+
+        # Save cluster size frequencies data
+        if file is not None:
+            Path(file).parent.mkdir(parents=True, exist_ok=True)
+            np.savetxt(file, np.column_stack((freqs_avg, freqs_std)),
+                header=f'Parameters: cutoff={cutoff} fraction={fraction} method={method}\n' 
+                        'freqs_avg freqs_std')
+
+        return freqs_avg, freqs_std
+    
+
     def fraction_eq_is_invalid(self, fraction, property=None, file=None, verbose=False):
         """Check if an equilibrium fraction is invalid.
         """

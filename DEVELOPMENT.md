@@ -39,23 +39,26 @@ In `SimulationSet._get_ensemble_property_generic`:
 
 ## How to Add a New Property
 
-To add a new property (e.g., "Cluster Distributions"):
+To add a new property:
 
-1. **In `Simulation` class**:
-   - Implement `get_ensemble_clusters(self, ..., file=None)`.
+
+1. **In `Simulation_Set` class**:
+   - Add entry to dictionary `self._properties` (property key: property_function). For example, `'cluster': 'get_ensemble_clusters'`
+
+2. **In `Simulation` class**:
+   - Implement the corresponding `get`-method. For example, `get_ensemble_clusters(self, pars_dict=None, file=None)`.
+   - Parameters necessary for calculating the property should be given in the form of dictionary `{parameter: value}`. For example, 
+        ```
+        {'cutoff': self.lattice.get_nn_distance(order=3), 
+                'fraction': 1.0,
+                'method':   'ckdtree'}
+        ```
    - Ensure it writes the `# Parameters: ...` header if `file` is not None.
-   - Use simple `key=val` pairs. Parsing is robust to spaces around equals,  
-   i.e. key= val, or key =val, or key = val etc. all work).
 
-2. **In `Simulation_Set` class**:
-   - Add the filename to `self._results_files` in `__init__`.
-   - Implement the high-level wrapper:
-     ```python
-     def get_ensemble_clusters(self, verbose=False):
-         def compute(sim, cache_file, params):
-             return sim.get_ensemble_clusters(fraction=params['fraction'], file=cache_file)
-         return self._get_ensemble_property_generic('clusters', compute, {}, use_fraction=True)
-     ```
+3. **In `Simulation_Set` class**:
+  - If visualisation desired, create plot functions. For example, `plot_cluster`
+
+
 
 ## Benefits
 - **Zero-effort caching**: New properties get parameter-aware caching "for free" once the generic handler is used.

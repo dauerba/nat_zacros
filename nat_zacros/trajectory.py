@@ -304,15 +304,14 @@ class Trajectory:
                     
         return r_bins, g_r
         
-    def get_cluster_distribution(self, nn_cutoff=1):
+    def get_cluster_size_freqs(self, cutoff=2.0, fraction=1.0, method='ckdtree'):
         """
-        Calculate cluster size distribution averaged over trajectory.
+        Calculate cluster size frequencies averaged over trajectory.
         
         Parameters
         ----------
-        nn_cutoff : int or float
-            Nearest neighbor distance cutoff for clustering.
-            If int: nth nearest neighbor distance
+        cutoff : float
+            Cutoff distance for clustering.
             If float: explicit distance in Angstroms
             
         Returns
@@ -326,59 +325,35 @@ class Trajectory:
         -----
         Uses connected components algorithm with PBC-aware distances.
         """
-        if isinstance(nn_cutoff, int):
-            cutoff_dist = self.lattice.get_nn_distance(nn_cutoff) * 1.1  # 10% tolerance
-        else:
-            cutoff_dist = nn_cutoff
             
-        all_clusters = []
         
-        for st in self.states:
-            occupied_sites = st.get_occupied_sites()
-            n_occupied = len(occupied_sites)
-            
-            if n_occupied == 0:
-                continue
-                
-            # Build adjacency matrix
-            occupied_coords = st.get_occupied_coords()
-            clusters = []
-            visited = np.zeros(n_occupied, dtype=bool)
-            
-            for i in range(n_occupied):
-                if visited[i]:
-                    continue
-                    
-                # Start new cluster with BFS
-                cluster = []
-                queue = [i]
-                visited[i] = True
-                
-                while queue:
-                    current = queue.pop(0)
-                    cluster.append(current)
-                    
-                    # Check neighbors
-                    for j in range(n_occupied):
-                        if not visited[j]:
-                            dist = self.lattice.minimum_image_distance(
-                                occupied_coords[current], occupied_coords[j]
-                            )
-                            if dist < cutoff_dist:
-                                visited[j] = True
-                                queue.append(j)
-                                
-                clusters.append(len(cluster))
-                
-            all_clusters.extend(clusters)
-            
-        # Calculate distribution
-        if len(all_clusters) > 0:
-            unique_sizes, counts = np.unique(all_clusters, return_counts=True)
-            frequencies = counts / counts.sum()
-            return unique_sizes, frequencies
+        if method == 'ckdtree':
+            func = 'get_clusters'
+        elif method == 'bfs':
+            func = 'get_clusters_bfs'
         else:
-            return np.array([]), np.array([])
+            print(f"Warning: unknown method '{method}' for cluster analysis. Defaulting to 'ckdtree'.")
+            func = 'get_clusters'
+       
+        # Initialize cluster size counts (index is cluster size)
+        cluster_size_freqs = np.zeros(len(self.lattice))
+        
+        # Determine number of snapshots to use based on fraction
+        n_states = len(self.states)
+        use_states = self.states[int(n_states * (1.0 - fraction)):]
+
+        n_clusters = 0
+        for st in use_states:
+            labels, clusters, sizes = getattr(st, func)(cutoff)
+
+            # Accumulate cluster sizes
+            for size in sizes: 
+                cluster_size_freqs[size-1] += 1
+            n_clusters += len(sizes)
+
+        cluster_size_freqs /= n_clusters  # Normalize by number of states  
+
+        return cluster_size_freqs
         
     def get_accessibility_histogram(self, fraction=1.0):
         """
@@ -424,6 +399,7 @@ class Trajectory:
 
         return frequencies_13, frequencies_2
         
+
     def get_coverage_vs_time(self):
         """
         Get coverage as a function of time.

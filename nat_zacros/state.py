@@ -7,6 +7,7 @@ configurations on a surface lattice from Zacros simulations.
 
 import numpy as np
 from pathlib import Path
+from scipy.spatial import cKDTree
 
 
 class State:
@@ -164,6 +165,150 @@ class State:
 
                 
         return acc13_list, acc2_list
+
+    def get_clusters(self, cutoff):
+        """
+        Cluster 2D points with periodic boundary conditions
+        using kD-Tree and Union method
+
+        Parameters
+        ----------
+        cutoff : float
+            Distance cutoff for connectivity (e.g. 3rd NN distance).
+
+        Returns
+        -------
+        labels : (n_ads,) int
+            Cluster label for each original point (0..nclusters-1).
+        clusters : list of ndarray
+            Indices of points in each cluster.
+        sizes : list of int 
+            Sizes of clusters
+        """
+
+        class UnionFind:
+            def __init__(self, n):
+                self.parent = np.arange(n)
+                self.rank = np.zeros(n, dtype=int)
+
+            def find(self, a):
+                p = self.parent
+                while p[a] != a:
+                    p[a] = p[p[a]]
+                    a = p[a]
+                return a
+
+            def union(self, a, b):
+                ra = self.find(a); rb = self.find(b)
+                if ra == rb:
+                    return
+                if self.rank[ra] < self.rank[rb]:
+                    self.parent[ra] = rb
+                else:
+                    self.parent[rb] = ra
+                    if self.rank[ra] == self.rank[rb]:
+                        self.rank[ra] += 1
+                
+        
+        pts = self.get_occupied_coords()
+
+        if pts.size == 0:
+            return np.array([], dtype=int), [], []
+
+        # Get number of occupied sites
+        n_ads = len(pts)
+
+        # Build augmented points = original points shifted by translations i*v1 + j*v2 with i,j in {-1,0,1}
+        shifts = [(i, j) for i in (-1, 0, 1) for j in (-1, 0, 1)]
+        aug_pts = np.zeros((n_ads * len(shifts), 2), dtype=float)
+        orig_idx = np.zeros(n_ads * len(shifts), dtype=int)
+
+        k = 0
+        for si, (i, j) in enumerate(shifts):
+            shift_vec = i*self.lattice.cell_vectors[0] + j*self.lattice.cell_vectors[1]
+            aug_pts[k:k+n_ads] = pts + shift_vec
+            orig_idx[k:k+n_ads] = np.arange(n_ads)
+            k += n_ads
+
+        # KD-tree on augmented points
+        tree = cKDTree(aug_pts)
+        pairs = tree.query_pairs(cutoff, output_type='ndarray')  # array of shape (M,2)
+
+        uf = UnionFind(n_ads)
+        for a, b in pairs:
+            ia = orig_idx[a]
+            ib = orig_idx[b]
+            if ia != ib:
+                uf.union(ia, ib)
+
+        # Extract roots and relabel to contiguous labels
+        roots = np.array([uf.find(i) for i in range(n_ads)])
+        unique_roots, inv = np.unique(roots, return_inverse=True)
+        labels = inv
+        clusters = [np.nonzero(labels == k)[0] for k in range(len(unique_roots))]
+        sizes = [len(c) for c in clusters]
+
+        return labels, clusters, sizes
+
+    def get_clusters_bfs(self, cutoff):
+        """
+        Cluster 2D points with periodic boundary conditions
+        using BFS (Breadth First Search) method
+
+        Parameters
+        ----------
+        cutoff : float
+            Distance cutoff for connectivity (e.g. 3rd NN distance).
+
+        Returns
+        -------
+        labels : (n_ads,) int
+            Cluster label for each original point (0..nclusters-1).
+        clusters : list of ndarray
+            Indices of points in each cluster.
+        sizes : list of int 
+            Sizes of clusters
+        """
+
+        pts = self.get_occupied_coords()
+
+        if pts.size == 0:
+            return np.array([], dtype=int), [], []
+
+        # Get number of occupied sites
+        n_ads = len(pts)
+
+        # Build adjacency matrix
+        sizes = []
+        clusters = []
+        visited = np.zeros(n_ads, dtype=bool)
+        
+        for i in range(n_ads):
+            if visited[i]:
+                continue
+                
+            # Start new cluster with BFS
+            cluster = []
+            queue = [i]
+            visited[i] = True
+            
+            while queue:
+                current = queue.pop(0)
+                cluster.append(current)
+                
+                # Check neighbors
+                for j in range(n_ads):
+                    if not visited[j]:
+                        dist = self.lattice.minimum_image_distance(pts[current], pts[j])
+                        if dist < cutoff:
+                            visited[j] = True
+                            queue.append(j)
+                            
+            clusters.append(np.array(cluster))
+            sizes.append(len(cluster))
+
+        return np.arange(len(clusters)), clusters, sizes
+
 
     def get_coverage(self):
         """

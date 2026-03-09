@@ -129,6 +129,7 @@ class SimulationSet:
             'energy':        'get_ensemble_energy_vs_time',
             'rdf':           'get_ensemble_rdf',
             'accessibility': 'get_ensemble_accessibility',
+            'cluster':       'get_ensemble_clusters',
         }
 
         self.data_path          = Path(data_path)
