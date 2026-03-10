@@ -918,6 +918,78 @@ class SimulationSet:
         plt.show()    
 
 
+    def plot_clusters(self, clusters, scale='log', ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16):
+        """Plot ensemble-averaged site accessibility for the loaded simulations.
+        
+        Parameters
+        ----------
+        clusters : dictionary of tuples
+            Each tuple contains (frequency, frequency_std) for a simulation.
+            frequency is ndarray of mean frequencies for cluster sizes.
+            frequency_std is ndarray of standard deviations across trajectories.
+        scale : str, default 'log'
+            Y-axis scale for plotting ('log' or 'linear')
+        ncols : int, default 3
+            Number of columns in the subplot grid.
+        figsize : tuple, default (12, 2.5)
+            Figure size (width, height) in inches for each row.
+        title_fontsize : int, default 10
+            Font size for subplot titles.
+        suptitle_fontsize : int, default 16
+            Font size for the overall figure title.
+
+        Returns
+        -------
+        None
+        """
+
+        # Set up subplots
+        nrows = int(np.ceil(len(self.simulations)/ncols))
+        figsize_scaled = (figsize[0], figsize[1] * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
+
+        fig_title = f'Ensemble averaged cluster size histogram -- {self.data_path.parts[-1]}'
+        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
+
+        if not self.simulations:
+            print("No simulations loaded: Nothing to plot.")
+            return
+        
+        # Iterate over loaded simulations in numerical order
+        for isim, key in enumerate(clusters.keys()):
+            sim = self.simulations[key]
+
+            data = clusters[key]
+            ax = axes[isim//ncols, isim%ncols]
+            title = f'Simulation #{key}:' \
+                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+            ax.set_title(title, fontsize=title_fontsize)
+
+            if data is None:
+                ax.set_axis_off() 
+                ax.text(0.5, 0.5, 'No histogram available', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+            else:
+                frequency_avg, frequency_std = data
+                # Plot bar chart with error bars
+                cluster_sizes = np.arange(len(frequency_avg))
+                ax.plot(cluster_sizes, frequency_avg)
+                ax.set_xlabel('Cluster size')
+                ax.set_ylabel('Frequency')
+                #ax.set_xticks(cluster_sizes)
+                ax.grid(axis='y', alpha=0.3)
+                ax.set_yscale(scale)
+                #ax.legend()
+
+        # Hide unused subplots
+        total_plots = len(axes.flatten())
+        for idx in range(len(clusters), total_plots):
+            ax = axes[idx//ncols, idx%ncols]
+            ax.axis('off')
+
+        plt.tight_layout()
+        plt.show()    
+
+
     def __len__(self):
         """Return total number of simulations found in the log file."""
         return len(self.simulations)

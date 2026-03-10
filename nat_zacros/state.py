@@ -288,24 +288,27 @@ class State:
                 continue
                 
             # Start new cluster with BFS
-            cluster = []
-            queue = [i]
+            queue   = np.zeros(n_ads, dtype=bool)
+            cluster = np.zeros(n_ads, dtype=bool)
+            queue[i]   = True
             visited[i] = True
             
-            while queue:
-                current = queue.pop(0)
-                cluster.append(current)
-                
+            while np.any(queue):
+                current = np.where(queue)[0][-1]
+                queue[current] = False
+                cluster[current] = True
                 # Check neighbors
                 for j in range(n_ads):
                     if not visited[j]:
                         dist = self.lattice.minimum_image_distance(pts[current], pts[j])
-                        if dist < cutoff:
+                        #dist = np.linalg.norm(pts[current] - pts[j])
+                        if dist <= cutoff:
                             visited[j] = True
-                            queue.append(j)
-                            
-            clusters.append(np.array(cluster))
-            sizes.append(len(cluster))
+                            queue[j]   = True
+
+            cl = np.where(cluster)[0]
+            clusters.append(cl)
+            sizes.append(len(cl))
 
         return np.arange(len(clusters)), clusters, sizes
 

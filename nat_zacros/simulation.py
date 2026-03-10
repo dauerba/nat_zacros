@@ -697,7 +697,7 @@ class Simulation:
 
         # Set defaults and update from pars_dict
         # If cutoff not provided, set to 3rd nn distance for the lattice
-        pars = {'cutoff': self.lattice.get_nn_distance(order=3), 
+        pars = {'cutoff': self.lattice.get_nn_distance(order=3)*1.05, 
                 'fraction': 1.0,
                 'method':   'ckdtree'}
         if pars_dict is not None:
@@ -727,6 +727,10 @@ class Simulation:
         
         # Get sample standard deviation (note Bessel's correction in denominator)
         freqs_std = np.sqrt((freqs_std - n_trajs*freqs_avg**2) / (n_trajs - 1))
+
+        # Trim zeros from back side
+        freqs_avg = np.trim_zeros(freqs_avg,'b')
+        freqs_std = freqs_std[:len(freqs_avg)]
 
         # Save cluster size frequencies data
         if file is not None:
