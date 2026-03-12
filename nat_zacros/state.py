@@ -166,7 +166,7 @@ class State:
                 
         return acc13_list, acc2_list
 
-    def get_clusters(self, cutoff):
+    def get_clusters(self, cutoff, eps=1e-4):
         """
         Cluster 2D points with periodic boundary conditions
         using kD-Tree and Union method
@@ -175,6 +175,8 @@ class State:
         ----------
         cutoff : float
             Distance cutoff for connectivity (e.g. 3rd NN distance).
+        eps   : float, default 1e-4
+            Tolerance parameter for the approximate search in the tree (see docs for scipy.spatial.ckdtree package)
 
         Returns
         -------
@@ -232,7 +234,8 @@ class State:
 
         # KD-tree on augmented points
         tree = cKDTree(aug_pts)
-        pairs = tree.query_pairs(cutoff, output_type='ndarray')  # array of shape (M,2)
+        # Get pairs inside of cutoff*(1+eps) with eps ensuring that single-precision lattice vectors would work
+        pairs = tree.query_pairs(cutoff,eps=eps, output_type='ndarray')  # array of shape (M,2)
 
         uf = UnionFind(n_ads)
         for a, b in pairs:
@@ -250,7 +253,7 @@ class State:
 
         return labels, clusters, sizes
 
-    def get_clusters_bfs(self, cutoff):
+    def get_clusters_bfs(self, cutoff, eps=1e-4):
         """
         Cluster 2D points with periodic boundary conditions
         using BFS (Breadth First Search) method
@@ -259,6 +262,8 @@ class State:
         ----------
         cutoff : float
             Distance cutoff for connectivity (e.g. 3rd NN distance).
+        eps   : float, default 1e-4
+            Tolerance parameter for the cutoff
 
         Returns
         -------
@@ -269,6 +274,8 @@ class State:
         sizes : list of int 
             Sizes of clusters
         """
+
+        cutoff = cutoff*(1 + eps)
 
         pts = self.get_occupied_coords()
 

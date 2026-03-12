@@ -674,6 +674,8 @@ class Simulation:
             Dictionary of parameters:
             - cutoff : float, default the distance to the 3rd-neighbor shell
                 Distance cutoff for connectivity
+            - eps : float, default 1e-4
+                Tolerance parameter for the approximate search in the tree (see docs for scipy.spatial.ckdtree package)
             - fraction : float, default 1.0
                 Fraction of trajectory data to use for RDF calculation (e.g., 0.5 for last half)
             - method : str, default 'ckdtree'
@@ -697,13 +699,15 @@ class Simulation:
 
         # Set defaults and update from pars_dict
         # If cutoff not provided, set to 3rd nn distance for the lattice
-        pars = {'cutoff': self.lattice.get_nn_distance(order=3)*1.05, 
+        pars = {'cutoff': self.lattice.get_nn_distance(order=3),
+                'eps'   : 1e-4, 
                 'fraction': 1.0,
                 'method':   'ckdtree'}
         if pars_dict is not None:
             pars.update(pars_dict)
         
         cutoff   =  pars['cutoff']
+        eps      =  pars['eps']
         fraction =  pars['fraction']
         method   =  pars['method']
 
@@ -718,7 +722,7 @@ class Simulation:
         freqs_avg = np.zeros(len(self.lattice))
         freqs_std = np.zeros(len(self.lattice))
         for traj in self.trajectories.values():
-            freqs = traj.get_cluster_size_freqs(cutoff=cutoff, fraction=fraction, method=method)
+            freqs = traj.get_cluster_size_freqs(cutoff=cutoff, eps=eps, fraction=fraction, method=method)
             freqs_avg += freqs
             freqs_std += freqs*freqs
 
@@ -736,7 +740,7 @@ class Simulation:
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             np.savetxt(file, np.column_stack((freqs_avg, freqs_std)),
-                header=f'Parameters: cutoff={cutoff} fraction={fraction} method={method}\n' 
+                header=f'Parameters: cutoff={cutoff} eps={eps} fraction={fraction} method={method}\n' 
                         'freqs_avg freqs_std')
 
         return freqs_avg, freqs_std

@@ -304,7 +304,7 @@ class Trajectory:
                     
         return r_bins, g_r
         
-    def get_cluster_size_freqs(self, cutoff=2.0, fraction=1.0, method='ckdtree'):
+    def get_cluster_size_freqs(self, cutoff=2.0, eps=1e-4, fraction=1.0, method='ckdtree'):
         """
         Calculate cluster size frequencies averaged over trajectory.
         
@@ -313,6 +313,8 @@ class Trajectory:
         cutoff : float
             Cutoff distance for clustering.
             If float: explicit distance in Angstroms
+        eps   : float, default 1e-4
+            Tolerance parameter for the approximate search in the tree (see docs for scipy.spatial.ckdtree package)
             
         Returns
         -------
@@ -344,7 +346,7 @@ class Trajectory:
 
         n_clusters = 0
         for st in use_states:
-            labels, clusters, sizes = getattr(st, func)(cutoff)
+            labels, clusters, sizes = getattr(st, func)(cutoff, eps=eps)
 
             # Accumulate cluster sizes
             for size in sizes: 
