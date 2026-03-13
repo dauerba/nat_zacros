@@ -130,6 +130,7 @@ class SimulationSet:
             'rdf':           'get_ensemble_rdf',
             'accessibility': 'get_ensemble_accessibility',
             'cluster':       'get_ensemble_clusters',
+            'leed':          'get_ensemble_leed_intensity_vs_time'
         }
 
         self.data_path          = Path(data_path)
@@ -779,6 +780,99 @@ class SimulationSet:
         # Hide unused subplots
         total_plots = len(axes.flatten())
         for idx in range(len(energies_vs_time.keys()), total_plots):
+            ax = axes[idx//ncols, idx%ncols]
+            ax.axis('off')
+
+        plt.tight_layout()
+        plt.show()    
+
+
+    def plot_leed_intensities(self, leed_intensities_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16):
+        """Plot ensemble-averaged LEED intensity vs time for the loaded simulations.
+        Parameters
+        ----------
+        LEED_intensity_vs_time : list of tuples
+            Each tuple contains (times, avgs, stds) for a simulation.
+        ncols : int, default 3
+            Number of columns in the subplot grid.
+        figsize : tuple, default (12, 3)
+            Figure size (width, height) in inches for each row.
+        title_fontsize : int, default 10
+            Font size for subplot titles.
+        suptitle_fontsize : int, default 16
+            Font size for the overall figure title.
+        show_eq : bool, default True
+            If True, show equilibration fraction on each subplot.
+        Returns
+        -------
+        None
+        """
+
+        # Set up subplots
+
+        nrows = int(np.ceil(len(self.simulations)/ncols))
+        figsize_scaled = (figsize[0], figsize[1] * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
+
+        fig_title = f'Ensemble averaged LEED intensity vs time -- {self.data_path.parts[-1]}'
+        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.0) # slightly lower y for better spacing
+
+        if not self.simulations:
+            print("No simulations loaded: Nothing to plot.")
+            return
+
+        # Iterate over loaded simulations in numerical order
+        for isim, key in enumerate(leed_intensities_vs_time.keys()):
+            sim = self.simulations[key]
+
+            # Get ensemble-averaged energy vs time and fraction for this simulation
+            times, avgs, stds = leed_intensities_vs_time[key]
+
+            # Plot energy as function of time using subplots
+            ax = axes[isim//ncols, isim%ncols]
+
+            # Determine time units
+            use_ms = len(times) > 0 and np.max(times) < 1.0
+            if use_ms:
+                times_plot = times * 1000
+                x_label = 'Time (ms)'
+            else:
+                times_plot = times
+                x_label = 'Time (s)'
+                
+            # Plot leed_intensity versus percent of total time on bottom axis; show time on top axis
+            ax.grid()
+            title = f'Simulation #{key}:' \
+                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+            ax.set_title(title, fontsize = title_fontsize)
+
+            if len(times_plot) > 0 and times_plot[-1] != 0:
+                # Use the actual maximum time (not the last element) in case times are unsorted
+                times_arr = np.asarray(times_plot, dtype=float)
+                max_time = float(np.max(times_arr))
+                percent = (times_arr / max_time) * 100.0
+
+                ax.plot(percent, avgs, marker='o', linestyle='-', markersize=2)
+                ax.set_xlabel('Percent of time (%)')
+                ax.set_ylabel('LEED intensity')
+
+                # Ensure percent axis spans 0-100 (0% -> time 0, 100% -> max_time)
+                ax.set_xlim(0.0, 100.0)
+
+                # Percent axis ticks: minor at 10%, major (and labels) at 20%
+                ax.xaxis.set_major_locator(MultipleLocator(20))
+                ax.xaxis.set_minor_locator(MultipleLocator(10))
+                ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
+
+            else:
+                # Fallback: no valid times, plot energies vs times_plot as-is
+                ax.plot(times_plot, avgs, marker='o', linestyle='-', markersize=2)
+                ax.set_xlabel(x_label)
+                ax.set_ylabel('LEED intensity')
+
+        # Hide unused subplots
+        total_plots = len(axes.flatten())
+        for idx in range(len(leed_intensities_vs_time.keys()), total_plots):
             ax = axes[idx//ncols, idx%ncols]
             ax.axis('off')
 

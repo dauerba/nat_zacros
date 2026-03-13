@@ -402,6 +402,24 @@ class Trajectory:
         return frequencies_13, frequencies_2
         
 
+    def get_leed_intensity_vs_time(self):
+        """
+        Get LEED intensity for states in a trajectory
+
+        Returns
+        -------
+        intensities : ndarray
+            LEED intensities vs time
+        """
+
+        intensities = np.zeros(len(self))
+
+        for i, st in enumerate(self.states):
+            intensities[i] = st.get_leed_intensity()
+
+        return self.times, intensities
+        
+
     def get_coverage_vs_time(self):
         """
         Get coverage as a function of time.
@@ -423,10 +441,7 @@ class Trajectory:
         Returns number of states if loaded, otherwise number of time points.
         This allows len() to work correctly for energy_only trajectories.
         """
-        if len(self.states) > 0:
-            return len(self.states)
-        else:
-            return len(self.states)
+        return len(self.states)
         
     def __getitem__(self, idx):
         """

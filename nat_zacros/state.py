@@ -332,6 +332,35 @@ class State:
         return np.count_nonzero(self.occupation) / len(self.lattice)
 
     
+    def get_leed_intensity(self):
+        """
+        Calculate LEED intensity.
+        
+        Returns
+        -------
+        intensity : float
+            LEED intensity
+            
+        """
+
+        n_pairs = 0
+        for site_idx in self.get_occupied_sites():
+
+            # Get nearest neighbors for this site
+            shell_1 = self.lattice.site_nns[site_idx]
+
+            # 3rd shell (the line connecting site_idx with its nn site and its 3rd shell site is straight)
+            shell_3 = [self.lattice.site_nns[s][i] for i, s in enumerate(shell_1)]
+
+            # Count vacant neighbors
+            n_pairs  += np.sum(self.occupation[shell_3] > 0)
+        
+        # Avoid double-counting
+        n_pairs //= 2
+                
+        return n_pairs**2
+
+
     def get_occupied_sites(self):
         """
         Get indices of all occupied sites.

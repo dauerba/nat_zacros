@@ -541,6 +541,7 @@ class Simulation:
         
         return frequency_13_avg, frequency_13_std,frequency_2_avg, frequency_2_std
     
+
     def get_ensemble_energy_vs_time(self, pars_dict=None, file=None):
         """
         Compute ensemble-averaged energy as function of time.
@@ -662,6 +663,110 @@ class Simulation:
                 header=f'Parameters: n_bins={n_bins}\nTime_s Energy_eV Energy_std_eV')
 
         return time_centers, energy_avg, energy_std
+    
+
+    def get_ensemble_leed_intensity_vs_time(self, pars_dict=None, file=None):
+        """
+        Compute ensemble-averaged leed intensity as function of time.
+        
+        Uses a two-stage averaging approach for robustness:
+        1. Intra-trajectory: Average all energy measurements within each time bin
+           for each trajectory independently
+        2. Inter-trajectory: Average the binned results across all trajectories
+        
+        This approach:
+        - Ensures equal weighting of trajectories (each contributes one value per bin)
+        - Uses all available data points (no interpolation artifacts)
+        - Handles uneven sampling naturally (bins with more data get better statistics)
+        - Preserves measured values without artificial smoothing
+        
+        Parameters
+        ----------
+        pars_dict : dict, optional
+            Dictionary of parameters:
+            - n_bins : int, default 100
+                Number of time bins for averaging
+        file : str or Path, optional    
+            Path to save the energy vs time data (time, energy_avg, energy_std).
+            If None, data will not be saved to file (default).
+        
+        Returns
+        -------
+        time_centers : ndarray
+            Time bin centers
+        intensity_avg : ndarray
+            Ensemble-averaged leed intensity at each time bin
+        intensity_std : ndarray
+            Standard deviation of leed intensity across trajectories
+        
+        Raises
+        ------
+        RuntimeError
+            If trajectories have not been loaded yet
+        
+        """
+
+        # Set defaults and update from pars_dict
+        pars = {'n_bins': 100}
+        if pars_dict is not None:
+            pars.update(pars_dict)
+        
+        n_bins = pars['n_bins']
+        if n_bins <= 0:
+            raise ValueError("The value of n_bins must be a positive integer.")
+
+        if len(self.trajectories) == 0:
+            raise RuntimeError(
+                "No trajectories loaded. Call load() first."
+            )
+        
+        # Find common time range across all trajectories
+        end_time = min([traj.times[-1] for traj in self.trajectories.values()])
+        start_time = max([traj.times[0] for traj in self.trajectories.values()])
+        
+        # Create time bins for discretization
+        time_bins = np.linspace(start_time, end_time, n_bins + 1)
+        time_centers = 0.5 * (time_bins[:-1] + time_bins[1:])
+        
+        # STAGE 1: Intra-trajectory averaging
+        # For each trajectory, bin its measurements and average within bins
+        hists = []
+        for traj in self.trajectories.values():
+            times, intensities = traj.get_leed_intensity_vs_time()
+            
+            # Initialize binned energy and sample counts for this trajectory
+            hist = np.zeros(n_bins)
+            counts = np.zeros(n_bins)
+            
+            # Accumulate energy measurements into bins
+            for t, intensity in zip(times, intensities):
+                if start_time <= t <= end_time:
+                    bin_idx = np.digitize(t, time_bins, right=False) - 1
+                    if 0 <= bin_idx < n_bins:
+                        hist[bin_idx] += intensity
+                        counts[bin_idx] += 1  # Track number of samples per bin
+            
+            # Average within each bin (multiple measurements → single value per bin)
+            # This gives us one representative value per time bin for THIS trajectory
+            with np.errstate(divide='ignore', invalid='ignore'):
+                hist = np.where(counts > 0, hist / counts, np.nan)
+            
+            hists.append(hist)
+        
+        # STAGE 2: Inter-trajectory (ensemble) averaging
+        # Each trajectory now contributes exactly one value per time bin
+        # Average across trajectories with equal weighting
+        avgs = np.nanmean(hists, axis=0)
+        stds = np.nanstd(hists, axis=0)  # Trajectory-to-trajectory variation
+
+        # Save energy vs time data to file
+        if file is not None:
+            Path(file).parent.mkdir(parents=True, exist_ok=True)
+            np.savetxt(file, 
+                np.column_stack((time_centers, avgs, stds)), 
+                header=f'Parameters: n_bins={n_bins}\nTime_s leed_int lead_std')
+
+        return time_centers, avgs, stds
     
 
     def get_ensemble_clusters(self, pars_dict=None, file=None):
