@@ -48,16 +48,12 @@ class Lattice:
         
     Methods
     -------
-    apply_pbc(coords)
-        Apply periodic boundary conditions to wrap coordinates
     get_cell_area()
         Calculate simulation cell area
     load()
         Read lattice definition from input/output files
     get_nn_distance(order=1)
         Get nearest neighbor distance for given order
-    minimum_image_distance(coord1, coord2)
-        Calculate minimum distance between two points with PBC
     pairwise_distances_pbc(coords)
         Calculate all pairwise distances with PBC (vectorized)
     """
@@ -203,86 +199,28 @@ class Lattice:
         # Otherwise use calculated size from unit cell
         return self.size[0] * self.size[1] * self.n_cell_sites
 
-    def apply_pbc(self, coords):
+    def pairwise_distances_pbc(self, condensed=False):
         """
-        Apply periodic boundary conditions to wrap coordinates into primary cell.
+        Calculate pairwise distances between all lattice sites with PBC (vectorized).
         
         Parameters
         ----------
-        coords : array_like, shape (N, 2) or (2,)
-            Cartesian coordinates to wrap
-            
-        Returns
-        -------
-        ndarray
-            Wrapped coordinates in primary cell
-        """
-
-        coords = np.atleast_2d(coords)
-        # Convert to fractional coordinates
-        # r_cart = frac @ cell_vectors, so frac = r_cart @ inv(cell_vectors)
-        cell_inv = np.linalg.inv(self.cell_vectors)
-        frac_coords = coords @ cell_inv
-        
-        # Wrap to [0, 1)
-        frac_coords = frac_coords - np.floor(frac_coords)
-        
-        # Convert back to Cartesian
-        cart_coords = frac_coords @ self.cell_vectors
-        
-        return cart_coords.squeeze()
-
-    def minimum_image_distance(self, coord1, coord2):
-        """
-        Calculate minimum image distance between two points with PBC.
-        
-        Parameters
-        ----------
-        coord1, coord2 : array_like, shape (2,)
-            Cartesian coordinates of two points
-            
-        Returns
-        -------
-        float
-            Minimum distance respecting periodic boundary conditions
-        """
-        # Displacement vector
-        dr = np.array(coord2) - np.array(coord1)
-        
-        # Convert to fractional coordinates
-        # cell_vectors rows are v1, v2, so: r_cart = frac @ cell_vectors
-        # Therefore: frac = r_cart @ inv(cell_vectors)
-        cell_inv = np.linalg.inv(self.cell_vectors)
-        frac_dr = dr @ cell_inv
-        
-        # Apply minimum image convention: shift by -1, 0, or +1
-        frac_dr = frac_dr - np.rint(frac_dr)
-        
-        # Convert back to Cartesian
-        cart_dr = frac_dr @ self.cell_vectors
-        
-        return np.linalg.norm(cart_dr)
-
-    def pairwise_distances_pbc(self, coords):
-        """
-        Calculate all pairwise distances with PBC (vectorized).
-        
-        Parameters
-        ----------
-        coords : ndarray, shape (N, 2)
-            Cartesian coordinates of N points
+        condensed : bool, default False
+            Defines the form in which distances matrix is returned
             
         Returns
         -------
         distances : ndarray, shape (N, N)
-            Matrix of pairwise distances with PBC
+            If condensed,    ( N*(N-1)/2 ) vector of pairwise distances with PBC
+            If not condensed,        (N*N) matrix of pairwise distances with PBC
+
             
         Notes
         -----
         This vectorized implementation is much faster than calling 
         minimum_image_distance in nested loops (speedup: ~10-100x for N>100).
         """
-        coords = np.asarray(coords)
+        coords = self.coordinates
         n = len(coords)
         
         # Compute all displacement vectors: dr[i,j] = coords[j] - coords[i]
@@ -303,8 +241,13 @@ class Lattice:
         
         # Compute norms
         distances = np.linalg.norm(cart_dr, axis=2)
-        
-        return distances
+
+        # Return results based on condensed arg
+        if condensed:
+            mask = np.triu(np.ones(distances.shape, dtype=bool), k=1)
+            return distances[mask]
+        else:
+            return distances
 
     def get_nn_distance(self, order=1):
         """

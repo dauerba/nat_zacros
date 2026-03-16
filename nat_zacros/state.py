@@ -361,6 +361,73 @@ class State:
         return n_pairs**2
 
 
+    def get_rdf(self, distances, r_max=None, dr=0.1, g_ref=None):
+        """
+        Calculate rdf for a state.
+        
+        Parameters
+        ----------
+        distances : (N*(N-1)/2,) array of floats
+            Condensed vector of lattice site distances
+        r_max : float, optional
+            Maximum distance for RDF (default: half of the cell diagonal)
+        dr : float, default 0.1
+            Bin width in Angstroms
+        g_ref : ndarray, optional
+            Reference RDF for normalization (from full lattice at coverage=1).
+            If provided, normalizes by number of neighbors in each shell.
+            
+        Returns
+        -------
+        r_bins : ndarray
+            Bin centers  
+        g_r : ndarray
+            RDF values normalized such that g(r)=1 for ideal gas
+            
+        """
+
+        if r_max is None:
+            # Default: half the minimum cell dimension
+            v1 = self.lattice.cell_vectors[0]
+            v2 = self.lattice.cell_vectors[1]
+            l1 = np.linalg.norm(v1)
+            l2 = np.linalg.norm(v2)
+            l3 = np.linalg.norm(v1 + v2)
+            r_max = min(l1, l2, l3) / 2.0
+
+        # Initialize histogram
+        n_bins = int(np.ceil(r_max / dr))
+        bin_edges = np.linspace(0.0, r_max, n_bins + 1)
+        r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        g_r = np.zeros(n_bins)
+
+        occupied_sites = self.get_occupied_sites() 
+        n_occupied_sites = len(occupied_sites)
+        coverage = self.get_coverage()
+ 
+        #if n_occupied_sites < 2:
+        #    continue
+
+        # Get distances between occupied sites:
+        # by selecting distances submatrix using np.ix_ mesh constructor
+        dist_sel    = distances[np.ix_(occupied_sites, occupied_sites)]
+        # and taking the elements above diagonal
+        dist_vector = dist_sel[np.triu_indices(n_occupied_sites,1)]
+
+        # Histogram
+        counts, _ = np.histogram(dist_vector, bins=bin_edges)
+        
+        # Normalize by g_ref if provided (number of neighbors in each shell)
+        if g_ref is not None:
+            counts_n = np.zeros_like(counts, dtype=float)
+            np.divide(counts, g_ref, out=counts_n, where=g_ref!=0)
+            g_r = counts_n / n_occupied_sites / coverage
+        else:
+            g_r = counts / n_occupied_sites / coverage
+                
+        return r_bins, g_r
+
+
     def get_occupied_sites(self):
         """
         Get indices of all occupied sites.

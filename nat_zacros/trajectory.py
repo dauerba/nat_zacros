@@ -280,10 +280,7 @@ class Trajectory:
             counts = np.zeros(n_bins, dtype=int)
             
             # Vectorized distance calculation (much faster for large n_occupied)
-            distances = self.lattice.pairwise_distances_pbc(occupied_coords)
-            # Get upper triangle (no diagonal, no double counting)
-            mask = np.triu(np.ones(distances.shape, dtype=bool), k=1)
-            valid_dists = distances[mask]
+            valid_dists = self.lattice.pairwise_distances_pbc(occupied_coords, condensed=True)
             valid_dists = valid_dists[(valid_dists > 0) & (valid_dists <= r_max)]
             
             # Histogram
