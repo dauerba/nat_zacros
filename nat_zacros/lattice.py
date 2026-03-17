@@ -191,14 +191,6 @@ class Lattice:
         self.site_coordinations = np.array(site_coordinations, dtype=int)
         self.site_nns = site_nns
 
-    def __len__(self):
-        """Return total number of Lattice sites."""
-        # If coordinates have been loaded from lattice_output.txt, use actual count
-        if len(self.coordinates) > 0:
-            return len(self.coordinates)
-        # Otherwise use calculated size from unit cell
-        return self.size[0] * self.size[1] * self.n_cell_sites
-
     def pairwise_distances_pbc(self, condensed=False):
         """
         Calculate pairwise distances between all lattice sites with PBC (vectorized).
@@ -300,6 +292,14 @@ class Lattice:
         # 2D cross product: |v1 × v2| = v1_x * v2_y - v1_y * v2_x
         v1, v2 = self.cell_vectors
         return abs(v1[0] * v2[1] - v1[1] * v2[0])
+
+    def __len__(self):
+        """Return total number of Lattice sites."""
+        # If coordinates have been loaded from lattice_output.txt, use actual count
+        if len(self.coordinates) > 0:
+            return len(self.coordinates)
+        # Otherwise use calculated size from unit cell
+        return self.size[0] * self.size[1] * self.n_cell_sites
 
     def __repr__(self):
         """String representation of Lattice class"""

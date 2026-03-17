@@ -217,12 +217,16 @@ class Trajectory:
     # RDF (Radial Distribution Function) Analysis Methods
     # ==========================================================================
 
-    def get_rdf(self, r_max=None, dr=0.1, fraction=1.0, g_ref=None):
+    def get_rdf(self, species_1, species_2, distances, r_max=None, dr=0.1, fraction=1.0, g_ref=None):
         """
         Calculate radial distribution function averaged over trajectory.
         
         Parameters
         ----------
+        species_1, species_2 : int
+            Species for which rdf is to be calculated
+        distances : (N,N) array of floats
+            Matrix of lattice site distances
         r_max : float, optional
             Maximum distance for RDF (default: half of cell diagonal)
         dr : float, default 0.1
@@ -256,48 +260,19 @@ class Trajectory:
             l3 = np.linalg.norm(v1 + v2)
             r_max = min(l1, l2, l3) / 2.0
             
-        # Initialize histogram
-        n_bins = int(np.ceil(r_max / dr))
-        bin_edges = np.linspace(0.0, r_max, n_bins + 1)
-        r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-        g_r = np.zeros(n_bins)
-
         # Determine which states to include based on fraction
         eq_idx = int((1.0 - fraction) * len(self.states))
         states_to_use = self.states[eq_idx:]
         
-        # Get average coverage
-        avg_coverage = np.mean([s.get_coverage() for s in states_to_use])
-        
         # Accumulate over all states in states_to_use
-        for st in states_to_use:
-            occupied_coords = st.get_occupied_coords()
-            n_occupied = len(occupied_coords)
-            
-            if n_occupied < 2:
-                continue
-            
-            counts = np.zeros(n_bins, dtype=int)
-            
-            # Vectorized distance calculation (much faster for large n_occupied)
-            valid_dists = self.lattice.pairwise_distances_pbc(occupied_coords, condensed=True)
-            valid_dists = valid_dists[(valid_dists > 0) & (valid_dists <= r_max)]
-            
-            # Histogram
-            counts, _ = np.histogram(valid_dists, bins=bin_edges)
-            
-            # Normalize by g_ref if provided (number of neighbors in each shell)
-            if g_ref is not None:
-                counts_n = np.zeros_like(counts, dtype=float)
-                np.divide(counts, g_ref, out=counts_n, where=g_ref!=0)
-                g_r += counts_n / n_occupied / avg_coverage
-            else:
-                g_r += counts / n_occupied / avg_coverage
-        
+        r_bins, g_r_avg = states_to_use[0].get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, g_ref=g_ref)
+        for st in states_to_use[1:]:
+            r_bins, g_r = st.get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, g_ref=g_ref)
+            g_r_avg += g_r
+
         # Normalize by number of states
-        # Factor of 2 to account for unordered pairs
         if len(states_to_use) > 0:
-            g_r = 2 * g_r / len(states_to_use)
+            g_r_avg = g_r_avg / len(states_to_use)
                     
         return r_bins, g_r
         

@@ -331,6 +331,25 @@ class State:
         """
         return np.count_nonzero(self.occupation) / len(self.lattice)
 
+    def get_coverage(self, species = None):
+        """
+        Calculate the coverage (fraction of occupied sites).
+
+        Parameters
+        ----------
+        species : integer or None; default None
+            Index of a species; if None, include all species
+        
+        Returns
+        -------
+        float
+            Fraction of sites that are occupied (0.0 to 1.0)
+        """
+        if species is None:
+            return np.count_nonzero(self.occupation) / len(self.lattice)
+        else:
+            return np.count_nonzero(self.occupation == species)
+
     
     def get_leed_intensity(self):
         """
@@ -361,14 +380,16 @@ class State:
         return n_pairs**2
 
 
-    def get_rdf(self, distances, r_max=None, dr=0.1, g_ref=None):
+    def get_rdf(self, species_1, species_2, distances, r_max=None, dr=0.1, g_ref=None):
         """
-        Calculate rdf for a state.
+        Calculate rdf for two species.
         
         Parameters
         ----------
-        distances : (N*(N-1)/2,) array of floats
-            Condensed vector of lattice site distances
+        species_1, species_2 : int
+            Species for which rdf is to be calculated
+        distances : (N,N) array of floats
+            Matrix of lattice site distances
         r_max : float, optional
             Maximum distance for RDF (default: half of the cell diagonal)
         dr : float, default 0.1
@@ -401,18 +422,28 @@ class State:
         r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         g_r = np.zeros(n_bins)
 
-        occupied_sites = self.get_occupied_sites() 
-        n_occupied_sites = len(occupied_sites)
-        coverage = self.get_coverage()
- 
-        #if n_occupied_sites < 2:
-        #    continue
+        if species_1 == species_2:
+            occupied_sites_1 = self.get_occupied_sites(species=species_1) 
+            occupied_sites_2 = occupied_sites_1 
+            # Get distances between occupied sites:
+            # by selecting distances submatrix using np.ix_ mesh constructor
+            dist_sel    = distances[np.ix_(occupied_sites_1, occupied_sites_1)]
+            # and taking the elements above diagonal
+            n_occupied_sites_1 = len(occupied_sites_1)
+            n_occupied_sites_2 = n_occupied_sites_1
+            dist_vector = dist_sel[np.triu_indices(n_occupied_sites_1,1)]
+            # Factor of 2 to account for unordered pairs
+            degeneracy = 2
 
-        # Get distances between occupied sites:
-        # by selecting distances submatrix using np.ix_ mesh constructor
-        dist_sel    = distances[np.ix_(occupied_sites, occupied_sites)]
-        # and taking the elements above diagonal
-        dist_vector = dist_sel[np.triu_indices(n_occupied_sites,1)]
+        else:
+            occupied_sites_1 = self.get_occupied_sites(species=species_1) 
+            occupied_sites_2 = self.get_occupied_sites(species=species_2) 
+            # Get distances between occupied sites:
+            # by selecting distances submatrix using np.ix_ mesh constructor
+            dist_vector = distances[np.ix_(occupied_sites_1, occupied_sites_2)].flatten()
+            n_occupied_sites_1 = len(occupied_sites_1)
+            n_occupied_sites_2 = len(occupied_sites_2)
+            degeneracy = 1
 
         # Histogram
         counts, _ = np.histogram(dist_vector, bins=bin_edges)
@@ -421,25 +452,32 @@ class State:
         if g_ref is not None:
             counts_n = np.zeros_like(counts, dtype=float)
             np.divide(counts, g_ref, out=counts_n, where=g_ref!=0)
-            g_r = counts_n / n_occupied_sites / coverage
+            g_r = counts_n * degeneracy / (n_occupied_sites_1 * n_occupied_sites_2) * len(self.lattice)
         else:
-            g_r = counts / n_occupied_sites / coverage
-                
+            g_r = counts * degeneracy / (n_occupied_sites_1 * n_occupied_sites_2) * len(self.lattice)
+
         return r_bins, g_r
 
 
-    def get_occupied_sites(self):
+    def get_occupied_sites(self, species = None):
         """
-        Get indices of all occupied sites.
+        Get indices of sites occupied by a species.
+
+        Parameters
+        ----------
+        species : integer or None; default None
+            Index of a species; if None, include all species
         
         Returns
         -------
         ndarray
-            Array of site indices where occupation > 0
+            Array of occuied site indices
         """
-        return np.where(self.occupation > 0)[0]
+        if species is None:
+            return np.where(self.occupation > 0)[0]
+        else:
+            return np.where(self.occupation == species)[0]
 
-    
     def get_empty_sites(self):
         """
         Get indices of all empty sites.

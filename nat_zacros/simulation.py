@@ -394,6 +394,8 @@ class Simulation:
         ----------
         pars_dict : dict, optional
             Dictionary of parameters:
+            - species_1, species_2 : int
+                Species for which rdf is to be calculated
             - r_max : float, default 40.0
                 Maximum distance for RDF (Angstroms)
             - dr : float, default 0.1
@@ -424,10 +426,12 @@ class Simulation:
         """
 
         # Set defaults and update from pars_dict
-        pars = {'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
+        pars = {'species_1': 0, 'species_2': 0, 'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
         if pars_dict is not None:
             pars.update(pars_dict)
         
+        species_1 = pars['species_1']
+        species_2 = pars['species_2']
         r_max =     pars['r_max']
         dr =        pars['dr']
         fraction =  pars['fraction']
@@ -443,19 +447,21 @@ class Simulation:
         else:
             r_ref, g_ref = None, None
         
+        # Get lattice sites distances look-up table
+        distances = self.lattice.pairwise_distances_pbc(condensed=False)
         # Compute RDF for each trajectory
         rdfs = []
         for traj in self.trajectories.values():
-            r, g = traj.get_rdf(r_max=r_max, dr=dr, fraction=fraction, g_ref=g_ref)
+            r, g = traj.get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, fraction=fraction, g_ref=g_ref)
             rdfs.append(g)
         
         # Ensemble average
         g_avg = np.mean(rdfs, axis=0)
-        g_std = np.std(rdfs, axis=0)
 
         # Save RDF data and g_ref (if present) to per-simulation folder
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
+            file_sp = file.parent / f'{file.stem}_{species_1_str}-{species_2_str}{file.suffix}'
             if normalize:
                 np.savetxt(file, np.column_stack((r, g_avg, g_std, g_ref)),
                     header=f'Parameters: r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
@@ -466,9 +472,9 @@ class Simulation:
                             'r_Angstrom g_r g_std')
 
         if normalize:
-            return r, g_avg, g_std, g_ref
+            return r, g_avg, g_ref
         else:
-            return r, g_avg, g_std
+            return r, g_avg
     
 
     def get_ensemble_accessibility(self, pars_dict=None, file=None):
