@@ -372,13 +372,14 @@ class SimulationSet:
             sn = str(entry[0])
             sdir = Path(self.data_path) / self.simset_dir / sn
             md = {
-                'job_name': entry[1],
+                'job_name'          : entry[1],
                 'lattice_dimensions': entry[2],  # [nx, ny]
-                'n_cells': entry[2][0] * entry[2][1],
-                'n_adsorbates': entry[3][0],
-                'temperature': entry[4],  # K
-                'coverage': entry[3][0] / (entry[2][0] * entry[2][1]),
-                'energy_terms': entry[5][1:]
+                'n_cells'           : entry[2][0] * entry[2][1],
+                'surf_species_names': entry[3][0],
+                'n_adsorbates'      : entry[4][0],
+                'temperature'       : entry[5],  # K
+                'coverage'          : entry[4][0] / (entry[2][0] * entry[2][1]),
+                'energy_terms'      : entry[6][1:]
                 }
 
             sim_dict[sn] = Simulation(sdir, metadata=md, 

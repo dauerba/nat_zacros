@@ -106,13 +106,16 @@ class Simulation:
 
         self.metadata = metadata
 
-        necessary_keys = ['lattice_dimensions', 
-                          'n_adsorbates', 
-                          'temperature', 
-                          'energy_terms']
+        self._necessary_keys = [
+            'lattice_dimensions', 
+            'surf_species_names',
+            'n_adsorbates', 
+            'temperature', 
+            'energy_terms'
+            ]
 
         args_ok = True
-        for key in necessary_keys:
+        for key in self._necessary_keys:
             if key not in self.metadata:
                 print(f" {key} undefined.")
                 args_ok = False
@@ -394,7 +397,7 @@ class Simulation:
         ----------
         pars_dict : dict, optional
             Dictionary of parameters:
-            - species_1, species_2 : int
+            - species_1, species_2 : str
                 Species for which rdf is to be calculated
             - r_max : float, default 40.0
                 Maximum distance for RDF (Angstroms)
@@ -426,7 +429,7 @@ class Simulation:
         """
 
         # Set defaults and update from pars_dict
-        pars = {'species_1': 0, 'species_2': 0, 'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
+        pars = {'species_1': '', 'species_2': '', 'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
         if pars_dict is not None:
             pars.update(pars_dict)
         
@@ -461,15 +464,17 @@ class Simulation:
         # Save RDF data and g_ref (if present) to per-simulation folder
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
-            file_sp = file.parent / f'{file.stem}_{species_1_str}-{species_2_str}{file.suffix}'
+            file_sp = file.parent / f'{file.stem}_{species_1}-{species_2}{file.suffix}'
             if normalize:
-                np.savetxt(file, np.column_stack((r, g_avg, g_std, g_ref)),
-                    header=f'Parameters: r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
-                            'r_Angstrom g_r g_std g_ref_r')
+                np.savetxt(file, np.column_stack((r, g_avg, g_ref)),
+                    header= f'Parameters: {species_1}-{species_2} '
+                            f'r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
+                            'r_Angstrom g_r g_ref_r')
             else:
-                np.savetxt(file, np.column_stack((r, g_avg, g_std)),
-                    header=f'Parameters: r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
-                            'r_Angstrom g_r g_std')
+                np.savetxt(file, np.column_stack((r, g_avg)),
+                    header= f'Parameters: {species_1}-{species_2} '
+                            f'r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
+                            'r_Angstrom g_r')
 
         if normalize:
             return r, g_avg, g_ref

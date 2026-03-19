@@ -52,7 +52,7 @@ class Trajectory:
         Calculate radial distribution function
     """
     
-    def __init__(self, dir, lattice, cache_file='traj.pkl'):
+    def __init__(self, dir, lattice, metadata, cache_file='traj.pkl'):
         """
         Initialize trajectory with lattice and optional data folder.
         
@@ -70,7 +70,29 @@ class Trajectory:
         self.times = []
         self.energies = []
         self.cache_file = self.dir / cache_file
-        
+
+        self.metadata = metadata
+
+        self._necessary_keys = [
+            'lattice_dimensions', 
+            'surf_species_names',
+            'n_adsorbates', 
+            'temperature', 
+            'energy_terms'
+            ]
+
+        args_ok = True
+        for key in self._necessary_keys:
+            if key not in self.metadata:
+                print(f" {key} undefined.")
+                args_ok = False
+
+        if not args_ok:
+            self.is_valid = False
+            print('Not enough metadata for a valid simulation.')
+
+
+
     def get_energy_vs_time(self):
         """
         Get energy as a function of time.
@@ -223,7 +245,7 @@ class Trajectory:
         
         Parameters
         ----------
-        species_1, species_2 : int
+        species_1, species_2 : str
             Species for which rdf is to be calculated
         distances : (N,N) array of floats
             Matrix of lattice site distances
