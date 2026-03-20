@@ -57,7 +57,7 @@ class State:
     """
     
 
-    def __init__(self, lattice, dirname=None):
+    def __init__(self, lattice, metadata, dirname=None):
         """
         Initialize state object.
         
@@ -74,11 +74,29 @@ class State:
         # Store reference to lattice
         self.lattice = lattice
 
+        # Get metadate and check that necessary keys are present
+        self.metadata = metadata
+
+        self._necessary_keys = [
+            'surf_species_names'
+            ]
+
+        args_ok = True
+        for key in self._necessary_keys:
+            if key not in self.metadata:
+                print(f" {key} undefined.")
+                args_ok = False
+
+        if not args_ok:
+            self.is_valid = False
+            print('Not enough metadata for a valid simulation.')
+
         # default is no species
-        self.n_gas_species = 0
         self.gas_species_names = []
-        self.n_surf_species = 0
-        self.surf_species_names = []
+        self.n_gas_species = len(self.gas_species_names)
+        self.n_surf_species = len(self.metadata['surf_species_names'])
+
+        self.surf_species_names = dict(zip(self.metadata['surf_species_names'],range(self.n_surf_species)))
         self.surf_species_dent = []
 
         # Arrays defining the adsorbed species on the lattice
@@ -386,7 +404,7 @@ class State:
         
         Parameters
         ----------
-        species_1, species_2 : int
+        species_1, species_2 : str
             Species for which rdf is to be calculated
         distances : (N,N) array of floats
             Matrix of lattice site distances
@@ -465,8 +483,8 @@ class State:
 
         Parameters
         ----------
-        species : integer or None; default None
-            Index of a species; if None, include all species
+        species : str or None; default None
+            Surface species name; if None, include all species
         
         Returns
         -------
@@ -476,7 +494,7 @@ class State:
         if species is None:
             return np.where(self.occupation > 0)[0]
         else:
-            return np.where(self.occupation == species)[0]
+            return np.where(self.occupation == self.surf_species_names[species])[0]
 
     def get_empty_sites(self):
         """
@@ -518,4 +536,5 @@ class State:
     def __repr__(self):
         """String representation of State class"""
         coverage = self.get_coverage()
-        return f"State(nsites={len(self.lattice)}, n_adsorbates={self.n_ads()}, coverage={coverage:.3f})"
+        return f"State(nsites={len(self.lattice)}, surf_species={self.surf_species_names}, "\
+               f"n_adsorbates={self.n_ads()}, coverage={coverage:.3f})"

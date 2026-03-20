@@ -152,7 +152,8 @@ class Simulation:
                 else:
                     # Initialize trajectory list
                     for tdir in self.traj_dirs:
-                        self.trajectories[tdir.name] = Trajectory(tdir, self.lattice)
+                        self.trajectories[tdir.name] = Trajectory(tdir, self.lattice, self.metadata)
+
         
 
 #
@@ -177,7 +178,7 @@ class Simulation:
     #         Trajectory object
     #     """
 
-    #     traj = Trajectory(traj_dir, self.lattice)
+    #     traj = Trajectory(traj_dir, self.lattice, self.metadata)
     #     traj.load(cache=cache, verbose=verbose)
     #     return traj
 
@@ -339,7 +340,7 @@ class Simulation:
         
 
 
-    def get_g_ref(self, r_max=None, dr=0.1):
+    def get_g_ref(self, distances, r_max=None, dr=0.1):
         """
         Calculate reference RDF for full lattice (all sites, coverage=1).
 
@@ -370,20 +371,13 @@ class Simulation:
         bin_edges = np.linspace(0.0, r_max, n_bins + 1)
         r_bins = 0.5 * (bin_edges[:-1] + bin_edges[1:])
 
-        # Get all lattice site coordinates
-        all_coords = self.lattice.coordinates
-        n_sites = len(all_coords)
         counts = np.zeros(n_bins, dtype=int)
 
-        # Vectorized calculation using pairwise_distances_pbc
-        dists_matrix = self.lattice.pairwise_distances_pbc(all_coords)
-        mask = np.triu(np.ones(dists_matrix.shape, dtype=bool), k=1)
-        dists = dists_matrix[mask]
-        valid_dists = dists[(dists > 0) & (dists <= r_max)]
+        valid_dists = distances[(distances > 0) & (distances <= r_max)]
         counts, _ = np.histogram(valid_dists, bins=bin_edges)
 
         # Normalize: 2 * counts / n_sites (factor 2 for unordered pairs)
-        g_ref = 2.0 * counts / n_sites
+        g_ref = 2.0 * counts / len(self.lattice)
         return r_bins, g_ref
 
 
@@ -398,7 +392,8 @@ class Simulation:
         pars_dict : dict, optional
             Dictionary of parameters:
             - species_1, species_2 : str
-                Species for which rdf is to be calculated
+                Species for which rdf is to be calculated. 
+                Default: species with index 0
             - r_max : float, default 40.0
                 Maximum distance for RDF (Angstroms)
             - dr : float, default 0.1
@@ -429,7 +424,9 @@ class Simulation:
         """
 
         # Set defaults and update from pars_dict
-        pars = {'species_1': '', 'species_2': '', 'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
+        pars = {'species_1': self.metadata['surf_species_names'][0], 
+                'species_2': self.metadata['surf_species_names'][0], 
+                'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
         if pars_dict is not None:
             pars.update(pars_dict)
         
@@ -445,13 +442,14 @@ class Simulation:
                 "No trajectories loaded. Call load_trajectories() first."
             )
         
+        # Get lattice sites distances look-up table
+        distances = self.lattice.pairwise_distances_pbc(condensed=False)
+
         if normalize:
-            r_ref, g_ref = self.get_g_ref(r_max=r_max, dr=dr)
+            r_ref, g_ref = self.get_g_ref(distances, r_max=r_max, dr=dr)
         else:
             r_ref, g_ref = None, None
         
-        # Get lattice sites distances look-up table
-        distances = self.lattice.pairwise_distances_pbc(condensed=False)
         # Compute RDF for each trajectory
         rdfs = []
         for traj in self.trajectories.values():
@@ -464,7 +462,7 @@ class Simulation:
         # Save RDF data and g_ref (if present) to per-simulation folder
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
-            file_sp = file.parent / f'{file.stem}_{species_1}-{species_2}{file.suffix}'
+            file_sp = file.parent / f'{file.stem}_{str(species_1).replace('*','x')}-{str(species_1).replace('*','x')}{file.suffix}'
             if normalize:
                 np.savetxt(file, np.column_stack((r, g_avg, g_ref)),
                     header= f'Parameters: {species_1}-{species_2} '

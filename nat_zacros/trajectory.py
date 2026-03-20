@@ -174,7 +174,7 @@ class Trajectory:
                 except (ValueError, IndexError):
                     raise ValueError(f'{str(self.dir.name)}: Failed to parse line: {line.strip()}')
 
-                st = State(self.lattice, dirname=self.dir)
+                st = State(self.lattice, self.metadata, dirname=self.dir)
 
                 for site in range(nsites):
                     site_line = content[pos + 1 + site]

@@ -369,13 +369,14 @@ class SimulationSet:
         # Format: dictionary of simulation-specific dictionaries
         sim_dict = {}
         for entry in log_entries:
+
             sn = str(entry[0])
             sdir = Path(self.data_path) / self.simset_dir / sn
             md = {
                 'job_name'          : entry[1],
                 'lattice_dimensions': entry[2],  # [nx, ny]
                 'n_cells'           : entry[2][0] * entry[2][1],
-                'surf_species_names': entry[3][0],
+                'surf_species_names': entry[3],
                 'n_adsorbates'      : entry[4][0],
                 'temperature'       : entry[5],  # K
                 'coverage'          : entry[4][0] / (entry[2][0] * entry[2][1]),
