@@ -445,7 +445,7 @@ class State:
             occupied_sites_2 = occupied_sites_1 
             # Get distances between occupied sites:
             # by selecting distances submatrix using np.ix_ mesh constructor
-            dist_sel    = distances[np.ix_(occupied_sites_1, occupied_sites_1)]
+            dist_sel    = distances[np.ix_(occupied_sites_1, occupied_sites_2)]
             # and taking the elements above diagonal
             n_occupied_sites_1 = len(occupied_sites_1)
             n_occupied_sites_2 = n_occupied_sites_1
@@ -459,6 +459,7 @@ class State:
             # Get distances between occupied sites:
             # by selecting distances submatrix using np.ix_ mesh constructor
             dist_vector = distances[np.ix_(occupied_sites_1, occupied_sites_2)].flatten()
+
             n_occupied_sites_1 = len(occupied_sites_1)
             n_occupied_sites_2 = len(occupied_sites_2)
             degeneracy = 1
@@ -494,7 +495,7 @@ class State:
         if species is None:
             return np.where(self.occupation > 0)[0]
         else:
-            return np.where(self.occupation == self.surf_species_names[species])[0]
+            return np.where(self.occupation == self.surf_species_names[species] + 1)[0]
 
     def get_empty_sites(self):
         """

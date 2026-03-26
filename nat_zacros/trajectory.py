@@ -133,7 +133,6 @@ class Trajectory:
         try:
             # Single-pass streaming parse (fast)
             nsites = len(self.lattice)
-
             # Read in a trajectory from history_output.txt
             with open(self.dir / 'history_output.txt', 'r') as f: 
                 content = f.readlines()
@@ -160,7 +159,6 @@ class Trajectory:
             expected_block_size = 1 + nsites  # 1 header + nsites data
             if block_size != expected_block_size:
                 raise ValueError(f'block size: {block_size}, expected {expected_block_size}.')
-
 
             for k in range(n_states):
 

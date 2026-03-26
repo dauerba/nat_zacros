@@ -102,7 +102,7 @@ class Simulation:
         self.is_loaded = False
         self.traj_dir_pfx = traj_dir_pfx
         self.lattice = lattice
-        self.trajectories = {}
+        self.trajectories = dict()
 
         self.metadata = metadata
 
@@ -153,7 +153,6 @@ class Simulation:
                     # Initialize trajectory list
                     for tdir in self.traj_dirs:
                         self.trajectories[tdir.name] = Trajectory(tdir, self.lattice, self.metadata)
-
         
 
 #
@@ -252,6 +251,59 @@ class Simulation:
     #     if verbose:
     #         print(f"Loaded {len(self.trajectories)} trajectories")
     #         print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
+
+    def _parse_results_header(self, file_path, verbose=False):
+        """
+        Parse parameters from the first line of a results file.
+
+        Format expected: # Parameters: key1=val1 key2=val2 ...
+
+        Parameters
+        ----------
+        file_path : str or Path
+            Path to the results file.
+        verbose : bool, optional
+            If True, prints warnings on failure.
+
+        Returns
+        -------
+        dict
+            Dictionary of parsed parameter keys and values.
+        """
+        if file_path is None or not Path(file_path).exists():
+            return {}
+        try:
+            with open(file_path, 'r') as f:
+                line = f.readline().strip()
+                if not line.startswith('# Parameters:'):
+                    return {}
+                
+                # Parseheader: remove label, convert '=' to spaces, then tokenize by whitespace
+                content = line.replace('# Parameters:', '').replace('=', ' ')
+                parts = content.split()
+                
+                params = {}
+                for i in range(0, len(parts), 2):
+                    if i + 1 >= len(parts):
+                        break
+                    key = parts[i].strip()
+                    val_str = parts[i+1].strip()
+                    
+                    # Type conversion
+                    if val_str.lower() == 'true': val = True
+                    elif val_str.lower() == 'false': val = False
+                    else:
+                        try:
+                            val = float(val_str) if '.' in val_str or 'e' in val_str.lower() else int(val_str)
+                        except ValueError:
+                            val = val_str
+                    params[key] = val
+                return params
+        except Exception as e:
+            if verbose:
+                print(f"Warning: Failed to parse cache header in {file_path}: {e}")
+            return {}
+
 
     def load(self, cache=True, verbose=False):
         """
@@ -375,13 +427,12 @@ class Simulation:
 
         valid_dists = distances[(distances > 0) & (distances <= r_max)]
         counts, _ = np.histogram(valid_dists, bins=bin_edges)
+        g_ref = counts / len(self.lattice)
 
-        # Normalize: 2 * counts / n_sites (factor 2 for unordered pairs)
-        g_ref = 2.0 * counts / len(self.lattice)
         return r_bins, g_ref
 
 
-    def get_ensemble_rdf(self, pars_dict=None, file=None):
+    def get_ensemble_rdf(self, pars_dict=None, file=None, verbose=False):
         """
         Compute ensemble-averaged radial distribution function.
         
@@ -441,7 +492,14 @@ class Simulation:
             raise RuntimeError(
                 "No trajectories loaded. Call load_trajectories() first."
             )
-        
+
+        # Loading rdf from the results file
+        if file is not None:
+            file_sp = file.parent / f'{file.stem}_{str(species_1).replace('*','star')}-{str(species_1).replace('*','star')}{file.suffix}'
+            data = self.load_results(file_sp, pars,verbose=verbose)
+            if data is not None:
+                return data
+
         # Get lattice sites distances look-up table
         distances = self.lattice.pairwise_distances_pbc(condensed=False)
 
@@ -462,14 +520,13 @@ class Simulation:
         # Save RDF data and g_ref (if present) to per-simulation folder
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
-            file_sp = file.parent / f'{file.stem}_{str(species_1).replace('*','x')}-{str(species_1).replace('*','x')}{file.suffix}'
             if normalize:
-                np.savetxt(file, np.column_stack((r, g_avg, g_ref)),
+                np.savetxt(file_sp, np.column_stack((r, g_avg, g_ref)),
                     header= f'Parameters: {species_1}-{species_2} '
                             f'r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
                             'r_Angstrom g_r g_ref_r')
             else:
-                np.savetxt(file, np.column_stack((r, g_avg)),
+                np.savetxt(file_sp, np.column_stack((r, g_avg)),
                     header= f'Parameters: {species_1}-{species_2} '
                             f'r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
                             'r_Angstrom g_r')
@@ -551,7 +608,7 @@ class Simulation:
         return frequency_13_avg, frequency_13_std,frequency_2_avg, frequency_2_std
     
 
-    def get_ensemble_energy_vs_time(self, pars_dict=None, file=None):
+    def get_ensemble_energy_vs_time(self, pars_dict=None, file=None, verbose=False):
         """
         Compute ensemble-averaged energy as function of time.
         
@@ -879,6 +936,39 @@ class Simulation:
         else:
             return False
 
+
+    def load_results(self, file, target_params, verbose=False):
+
+        data = None
+
+        # Check results file validity
+        res_params = self._parse_results_header(file)
+        res_valid = bool(res_params) and all(
+            np.isclose(res_params.get(k, -1e9), v) if isinstance(v, float) else res_params.get(k) == v
+            for k, v in target_params.items()
+        )
+
+        print(res_params)
+        print(target_params)
+        print(res_valid)
+        if res_valid:
+            try:
+                # Skiprows=1 if it doesn't have an extra header line beyond Parameters
+                # Actually RDF and Energy have multiple header lines. np.loadtxt handles # comments automatically.
+                if verbose:
+                    print(f" Loading from {file.name}...",end='')
+                data = np.loadtxt(file, unpack=True)
+                if verbose:
+                    print('\n')
+            except Exception:
+                if verbose:
+                    print(f"failed.")
+                
+
+        if verbose and data is None:
+            print(f' Calculating and saving to {file.name}...')
+
+        return data
 
     def __repr__(self):
         """String representation of simulation class."""

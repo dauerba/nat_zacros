@@ -179,58 +179,6 @@ class SimulationSet:
         return arg
 
 
-    def _parse_results_header(self, file_path, verbose=False):
-        """
-        Parse parameters from the first line of a results file.
-
-        Format expected: # Parameters: key1=val1 key2=val2 ...
-
-        Parameters
-        ----------
-        file_path : str or Path
-            Path to the results file.
-        verbose : bool, optional
-            If True, prints warnings on failure.
-
-        Returns
-        -------
-        dict
-            Dictionary of parsed parameter keys and values.
-        """
-        if file_path is None or not Path(file_path).exists():
-            return {}
-        try:
-            with open(file_path, 'r') as f:
-                line = f.readline().strip()
-                if not line.startswith('# Parameters:'):
-                    return {}
-                
-                # Parseheader: remove label, convert '=' to spaces, then tokenize by whitespace
-                content = line.replace('# Parameters:', '').replace('=', ' ')
-                parts = content.split()
-                
-                params = {}
-                for i in range(0, len(parts), 2):
-                    if i + 1 >= len(parts):
-                        break
-                    key = parts[i].strip()
-                    val_str = parts[i+1].strip()
-                    
-                    # Type conversion
-                    if val_str.lower() == 'true': val = True
-                    elif val_str.lower() == 'false': val = False
-                    else:
-                        try:
-                            val = float(val_str) if '.' in val_str or 'e' in val_str.lower() else int(val_str)
-                        except ValueError:
-                            val = val_str
-                    params[key] = val
-                return params
-        except Exception as e:
-            if verbose:
-                print(f"Warning: Failed to parse cache header in {file_path}: {e}")
-            return {}
-
     def get(self, property_key, pars_dict=None, simulations=None, use_fraction=False, save=True,
             autoload=False, cache=True, verbose=False):
         """
@@ -306,30 +254,11 @@ class SimulationSet:
                         continue
                     target_params['fraction'] = fraction
 
-                # Check results file validity
-                res_params = self._parse_results_header(results_file)
-                res_valid = bool(res_params) and all(
-                    np.isclose(res_params.get(k, -1e9), v) if isinstance(v, float) else res_params.get(k) == v
-                    for k, v in target_params.items()
-                )
-
-                if res_valid:
-                    try:
-                        # Skiprows=1 if it doesn't have an extra header line beyond Parameters
-                        # Actually RDF and Energy have multiple header lines. np.loadtxt handles # comments automatically.
-                        data = np.loadtxt(results_file, unpack=True)
-                        if verbose:
-                            print(f"Loaded {property_key} for simulation #{key} from results...")
-                        results[key] = data
-                        continue
-                    except Exception:
-                        pass
-
                 # Recalculate
                 if verbose:
-                    print(f"Calculating {property_key} for simulation #{key}...")
+                    print(f"Getting {property_key} for simulation #{key}...")
                 
-                data = method(pars_dict=target_params, file=results_file)
+                data = method(pars_dict=target_params, file=results_file, verbose=verbose)
                 results[key] = data
 
             else:
