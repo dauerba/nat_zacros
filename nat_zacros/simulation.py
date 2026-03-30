@@ -370,25 +370,36 @@ class Simulation:
 
         return len(self.trajectories)  # Return number of trajectories cleared
     
-    def clear_results(self, file, verbose=False):
+    def clear_results(self, fnames, verbose=False):
         """Clear cached results file.
 
         Parameters
         ----------
-        file : str or Path
+        fnames : str or Path or list of them
             Path to the results file to clear.
         verbose : bool, default False
             If True, print detailed information about cleared results.
         """
 
-        file = Path(file)
-        if file.exists():
-            file.unlink()
-            if verbose:
-                print(f"Simulation {self.dir.name}: {file.name} deleted.")
+        # Normalize fnames
+        if isinstance(fnames, list):
+            files_to_clear = fnames
         else:
-            if verbose:
-                print(f"Simulation {self.dir.name}: {file.name} does not exist.")
+            files_to_clear = [fnames]
+
+        counter = 0
+        for file in fnames:
+            file = Path(file)
+            if file.exists():
+                file.unlink()
+                counter += 1
+                if verbose:
+                    print(f"Simulation {self.dir.name}: {file.name} deleted.")
+            else:
+                if verbose:
+                    print(f"Simulation {self.dir.name}: {file.name} does not exist.")
+    
+        return counter
         
 
 
@@ -496,7 +507,7 @@ class Simulation:
         # Loading rdf from the results file
         if file is not None:
             file_sp = file.parent / f'{file.stem}_{str(species_1).replace('*','star')}-{str(species_1).replace('*','star')}{file.suffix}'
-            data = self.load_results(file_sp, pars,verbose=verbose)
+            data = self.load_results(file_sp, pars, verbose=verbose)
             if data is not None:
                 return data
 
@@ -522,12 +533,14 @@ class Simulation:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             if normalize:
                 np.savetxt(file_sp, np.column_stack((r, g_avg, g_ref)),
-                    header= f'Parameters: {species_1}-{species_2} '
+                    header= f'Parameters: '
+                            f'species_1={species_1} species_2={species_2} '
                             f'r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
                             'r_Angstrom g_r g_ref_r')
             else:
                 np.savetxt(file_sp, np.column_stack((r, g_avg)),
-                    header= f'Parameters: {species_1}-{species_2} '
+                    header= f'Parameters: '
+                            f'species_1={species_1} species_2={species_2} '
                             f'r_max={r_max} dr={dr} fraction={fraction} normalize={normalize}\n' 
                             'r_Angstrom g_r')
 
@@ -948,9 +961,6 @@ class Simulation:
             for k, v in target_params.items()
         )
 
-        print(res_params)
-        print(target_params)
-        print(res_valid)
         if res_valid:
             try:
                 # Skiprows=1 if it doesn't have an extra header line beyond Parameters
@@ -959,7 +969,7 @@ class Simulation:
                     print(f" Loading from {file.name}...",end='')
                 data = np.loadtxt(file, unpack=True)
                 if verbose:
-                    print('\n')
+                    print()
             except Exception:
                 if verbose:
                     print(f"failed.")

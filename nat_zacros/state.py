@@ -465,7 +465,7 @@ class State:
             degeneracy = 1
 
         # Histogram
-        counts, _ = np.histogram(dist_vector, bins=bin_edges)
+        counts, _ = np.histogram(dist_vector[(dist_vector > 0) & (dist_vector < r_max)], bins=bin_edges)
         
         # Normalize by g_ref if provided (number of neighbors in each shell)
         if g_ref is not None:

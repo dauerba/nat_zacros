@@ -380,9 +380,10 @@ class SimulationSet:
                 for key in self._arg_to_list(simulations):
                     if key in self.simulations.keys():
                         sim = self.simulations[key]
-                        fname = self.data_path / self.results_dir / sim.dir.name / (fmt + '.dat')
-                        sim.clear_results(fname, verbose=verbose)
-                        counter += 1
+                        #fname = self.data_path / self.results_dir / sim.dir.name / (fmt + '.dat')
+                        path = self.data_path / self.results_dir / sim.dir.name
+                        fnames = path.glob(f'{fmt}*.dat')
+                        counter += sim.clear_results(fnames, verbose=verbose)
                     else:
                         print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
