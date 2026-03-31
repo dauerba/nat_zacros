@@ -744,7 +744,7 @@ class Simulation:
         return time_centers, energy_avg, energy_std
     
 
-    def get_ensemble_leed_intensity_vs_time(self, pars_dict=None, file=None):
+    def get_ensemble_leed_intensity_vs_time(self, pars_dict=None, file=None, verbose=False):
         """
         Compute ensemble-averaged leed intensity as function of time.
         
@@ -786,11 +786,16 @@ class Simulation:
         """
 
         # Set defaults and update from pars_dict
-        pars = {'n_bins': 100}
+        pars = {'n_bins': 100, 
+                'r': self.lattice.get_nn_distance(3), 
+                'tolerance': 0.01}
         if pars_dict is not None:
             pars.update(pars_dict)
         
         n_bins = pars['n_bins']
+        r = pars['r']
+        tolerance = pars['tolerance']
+
         if n_bins <= 0:
             raise ValueError("The value of n_bins must be a positive integer.")
 
@@ -806,18 +811,21 @@ class Simulation:
         # Create time bins for discretization
         time_bins = np.linspace(start_time, end_time, n_bins + 1)
         time_centers = 0.5 * (time_bins[:-1] + time_bins[1:])
-        
+
+        # Get lattice sites distances look-up table
+        distances = self.lattice.pairwise_distances_pbc(condensed=False)
+
         # STAGE 1: Intra-trajectory averaging
         # For each trajectory, bin its measurements and average within bins
         hists = []
         for traj in self.trajectories.values():
-            times, intensities = traj.get_leed_intensity_vs_time()
+            times, intensities = traj.get_leed_intensity_vs_time(distances, r, tolerance=tolerance)
             
-            # Initialize binned energy and sample counts for this trajectory
+            # Initialize binned values and sample counts for this trajectory
             hist = np.zeros(n_bins)
             counts = np.zeros(n_bins)
             
-            # Accumulate energy measurements into bins
+            # Accumulate measurements into bins
             for t, intensity in zip(times, intensities):
                 if start_time <= t <= end_time:
                     bin_idx = np.digitize(t, time_bins, right=False) - 1
@@ -838,12 +846,13 @@ class Simulation:
         avgs = np.nanmean(hists, axis=0)
         stds = np.nanstd(hists, axis=0)  # Trajectory-to-trajectory variation
 
-        # Save energy vs time data to file
+        # Save leed intensity vs time data to file
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             np.savetxt(file, 
                 np.column_stack((time_centers, avgs, stds)), 
-                header=f'Parameters: n_bins={n_bins}\nTime_s leed_int lead_std')
+                header=f'Parameters: n_bins={n_bins} r={r} tolerance={tolerance}\n'
+                        'Time_s leed_int lead_std')
 
         return time_centers, avgs, stds
     
