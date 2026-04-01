@@ -787,14 +787,12 @@ class Simulation:
 
         # Set defaults and update from pars_dict
         pars = {'n_bins': 100, 
-                'r': self.lattice.get_nn_distance(3), 
-                'tolerance': 0.01}
+                'r': self.lattice.get_nn_distance(3)}
         if pars_dict is not None:
             pars.update(pars_dict)
         
         n_bins = pars['n_bins']
         r = pars['r']
-        tolerance = pars['tolerance']
 
         if n_bins <= 0:
             raise ValueError("The value of n_bins must be a positive integer.")
@@ -819,7 +817,7 @@ class Simulation:
         # For each trajectory, bin its measurements and average within bins
         hists = []
         for traj in self.trajectories.values():
-            times, intensities = traj.get_leed_intensity_vs_time(distances, r, tolerance=tolerance)
+            times, intensities = traj.get_leed_intensity_vs_time(distances, r)
             
             # Initialize binned values and sample counts for this trajectory
             hist = np.zeros(n_bins)
@@ -851,7 +849,7 @@ class Simulation:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             np.savetxt(file, 
                 np.column_stack((time_centers, avgs, stds)), 
-                header=f'Parameters: n_bins={n_bins} r={r} tolerance={tolerance}\n'
+                header=f'Parameters: n_bins={n_bins} r={r}\n'
                         'Time_s leed_int lead_std')
 
         return time_centers, avgs, stds

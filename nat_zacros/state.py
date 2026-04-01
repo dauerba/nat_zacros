@@ -369,7 +369,7 @@ class State:
             return np.count_nonzero(self.occupation == species)
 
     
-    def get_leed_intensity(self, distances, r, tolerance=0.01):
+    def get_leed_intensity(self, distances, r):
         """
         Calculate LEED intensity.
         
@@ -382,11 +382,14 @@ class State:
         # Get indices of occupied sites
         occupied_sites = self.get_occupied_sites()
         # Select the corresponding part of distances matrix
-        d_sel    = distances[np.ix_(occupied_sites, occupied_sites)]
+        d_occ    = distances[np.ix_(occupied_sites, occupied_sites)]
 
-        n_pairs = len(d_sel[(d_sel > r*(1-tolerance)) & (d_sel < r*(1+tolerance))])/2
-               
-        return n_pairs**2
+        n_pairs = len(d_occ[np.isclose(d_occ, r)])/2
+
+        n_ads_in_pairs = np.sum(np.any(np.isclose(d_occ, r), axis=1))
+
+        #return n_pairs**2
+        return n_ads_in_pairs**2
 
 
     def get_rdf(self, species_1, species_2, distances, r_max=None, dr=0.1, g_ref=None):

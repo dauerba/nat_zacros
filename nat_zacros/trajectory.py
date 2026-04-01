@@ -394,7 +394,7 @@ class Trajectory:
         return frequencies_13, frequencies_2
         
 
-    def get_leed_intensity_vs_time(self, distances, r, tolerance=0.01):
+    def get_leed_intensity_vs_time(self, distances, r):
         """
         Get LEED intensity for states in a trajectory
 
@@ -407,7 +407,7 @@ class Trajectory:
         intensities = np.zeros(len(self))
 
         for i, st in enumerate(self.states):
-            intensities[i] = st.get_leed_intensity(distances, r, tolerance=tolerance)
+            intensities[i] = st.get_leed_intensity(distances, r)
 
         return self.times, intensities
         
