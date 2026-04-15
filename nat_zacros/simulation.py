@@ -550,7 +550,7 @@ class Simulation:
             return r, g_avg
     
 
-    def get_ensemble_accessibility(self, pars_dict=None, file=None):
+    def get_ensemble_accessibility(self, pars_dict=None, file=None, verbose=False):
         """
         Compute ensemble-averaged site accessibility histogram.
         
@@ -855,7 +855,7 @@ class Simulation:
         return time_centers, avgs, stds
     
 
-    def get_ensemble_clusters(self, pars_dict=None, file=None):
+    def get_ensemble_clusters(self, pars_dict=None, file=None, verbose=False):
         """
         Compute ensemble-averaged cluster properties.
         
