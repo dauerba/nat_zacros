@@ -99,6 +99,8 @@ class State:
         self.surf_species_names = dict(zip(self.metadata['surf_species_names'],range(self.n_surf_species)))
         self.surf_species_dent = []
 
+        self.gas_species_change = []
+
         # Arrays defining the adsorbed species on the lattice
         # with indices corresponding to lattice site indices starting at 1
 
@@ -141,6 +143,9 @@ class State:
                 self.ads_ids[site]    = int(parts[1])
                 self.occupation[site] = int(parts[2])
                 self.dentation[site]  = int(parts[3])
+            if self.n_gas_species > 0:
+                self.gas_species_change = \
+                    [int(s) for s in content[7 + idx*(nsites+1) + nsites].split()]
         except Exception as e:
             print(f'Error loading a state from trajectory {str(self.dir)}: {e}')
     
@@ -338,35 +343,28 @@ class State:
         return np.arange(len(clusters)), clusters, sizes
 
 
-    def get_coverage(self):
+    def get_coverages(self):
         """
-        Calculate the coverage (fraction of occupied sites).
-        
+        Calculate the coverages for surface species (fraction of occupied sites).
+
         Returns
         -------
-        float
-            Fraction of sites that are occupied (0.0 to 1.0)
+        coverages: vector of floats (number of surface species + 1)
+            partial coverages of surface species, 
+            index 0 refers to the coverage of empty sites
         """
-        return np.count_nonzero(self.occupation) / len(self.lattice)
 
-    def get_coverage(self, species = None):
-        """
-        Calculate the coverage (fraction of occupied sites).
+        coverages = np.empty(self.n_surf_species + 1)
+        indices, counts = np.unique(self.occupation, return_counts=True)
+        coverages[indices] = counts / len(self.occupation)
 
-        Parameters
-        ----------
-        species : integer or None; default None
-            Index of a species; if None, include all species
+        # Here is another (probably, more efficient) way to count
+        # we've chosen np.unique for it does not deal with zeros
+        # coverages = np.zeros(self.n_surf_species)
+        # counts = np.bincount(self.occupation)
+        # coverages[:len(counts)] = counts / len(self.occupation)
         
-        Returns
-        -------
-        float
-            Fraction of sites that are occupied (0.0 to 1.0)
-        """
-        if species is None:
-            return np.count_nonzero(self.occupation) / len(self.lattice)
-        else:
-            return np.count_nonzero(self.occupation == species)
+        return coverages
 
     
     def get_leed_intensity(self, distances, r):

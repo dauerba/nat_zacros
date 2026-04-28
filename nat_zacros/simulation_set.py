@@ -126,11 +126,12 @@ class SimulationSet:
 
         # Dictionary (property key: property_function)
         self._properties = {
-            'energy':        'get_ensemble_energy_vs_time',
-            'rdf':           'get_ensemble_rdf',
             'accessibility': 'get_ensemble_accessibility',
             'cluster':       'get_ensemble_clusters',
-            'leed':          'get_ensemble_leed_intensity_vs_time'
+            'coverage':      'get_ensemble_coverages_vs_time',
+            'energy':        'get_ensemble_energy_vs_time',
+            'leed':          'get_ensemble_leed_intensity_vs_time',
+            'rdf':           'get_ensemble_rdf',
         }
 
         self.data_path          = Path(data_path)

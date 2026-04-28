@@ -6,6 +6,7 @@ collections of trajectories from a single Zacros simulation.
 """
 
 import numpy as np
+import warnings
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -935,6 +936,119 @@ class Simulation:
                         'freqs_avg freqs_std')
 
         return freqs_avg, freqs_std
+    
+
+    def get_ensemble_coverages_vs_time(self, pars_dict=None, file=None, verbose=False):
+        """
+        Compute ensemble-averaged species coverages as function of time.
+        
+        Uses a two-stage averaging approach for robustness:
+        1. Intra-trajectory: Average all values within each time bin
+           for each trajectory independently
+        2. Inter-trajectory: Average the binned results across all trajectories
+        
+        This approach:
+        - Ensures equal weighting of trajectories (each contributes one value per bin)
+        - Uses all available data points (no interpolation artifacts)
+        - Handles uneven sampling naturally (bins with more data get better statistics)
+        - Preserves measured values without artificial smoothing
+        
+        Parameters
+        ----------
+        pars_dict : dict, optional
+            Dictionary of parameters:
+            - n_bins : int, default 100
+                Number of time bins for averaging
+        file : str or Path, optional    
+            Path to save the energy vs time data (time, energy_avg, energy_std).
+            If None, data will not be saved to file (default).
+        
+        Returns
+        -------
+        time_centers : ndarray
+            Time bin centers
+        avgs : ndarray
+            Ensemble-averaged values at each time
+        stds : ndarray
+            Standard deviation across trajectories (trajectory-to-trajectory variation)
+        
+        Raises
+        ------
+        RuntimeError
+            If trajectories have not been loaded yet
+        """
+        
+        # Set defaults and update from pars_dict
+        pars = {'n_bins': 100}
+        if pars_dict is not None:
+            pars.update(pars_dict)
+        
+        n_bins = pars['n_bins']
+        if n_bins <= 0:
+            raise ValueError("The value of n_bins must be a positive integer.")
+
+        if len(self.trajectories) == 0:
+            raise RuntimeError(
+                "No trajectories loaded. Call load() first."
+            )
+        
+        # Find common time range across all trajectories
+        end_time = min([traj.times[-1] for traj in self.trajectories.values()])
+        start_time = max([traj.times[0] for traj in self.trajectories.values()])
+        
+        # Create time bins for discretization
+        time_bins = np.linspace(start_time, end_time, n_bins + 1)
+        time_centers = 0.5 * (time_bins[:-1] + time_bins[1:])
+        
+        # STAGE 1: Intra-trajectory averaging
+        # For each trajectory, bin its energy measurements and average within bins
+        hists = []
+        for traj in self.trajectories.values():
+            times, coverages = traj.get_coverages_vs_time()
+            
+            # Initialize binned energy and sample counts for this trajectory
+            hist   = np.zeros((n_bins, coverages.shape[1]))
+            counts = np.zeros(n_bins)
+            
+            # Accumulate values into bins
+            for t, cov in zip(times, coverages):
+                if start_time <= t <= end_time:
+                    bin_idx = np.digitize(t, time_bins, right=False) - 1
+                    if 0 <= bin_idx < n_bins:
+                        hist[bin_idx] += cov
+                        counts[bin_idx] += 1  # Track number of samples per bin
+            
+            # Average within each bin (multiple measurements → single value per bin)
+            # This gives us one representative value per time bin for THIS trajectory
+            hist = np.divide(hist, counts[:, np.newaxis], out=np.full_like(hist, np.nan), where=counts[:, np.newaxis] > 0)
+            
+            hists.append(hist)
+        
+        # STAGE 2: Inter-trajectory (ensemble) averaging
+        # Each trajectory now contributes exactly one value per time bin
+        # Average across trajectories with equal weighting
+        hists = np.array(hists)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', message='Mean of empty slice', category=RuntimeWarning
+            )
+            warnings.filterwarnings(
+                'ignore', message='Degrees of freedom <= 0 for slice', category=RuntimeWarning
+            )
+            avgs = np.nanmean(hists, axis=0)
+            stds = np.nanstd(hists, axis=0)  # Trajectory-to-trajectory variation
+
+        # Save time series data to file
+        if file is not None:
+            Path(file).parent.mkdir(parents=True, exist_ok=True)
+            sp = ['*'] + self.metadata['surf_species_names']
+            cov_header = ' '.join(['cov_'+s+'_ML' for s in sp])
+            std_header = ' '.join(['std_'+s+'_ML' for s in sp])
+            np.savetxt(file, 
+                np.column_stack((time_centers, avgs, stds)), 
+                header=f'Parameters: n_bins={n_bins}\nTime_s {cov_header} {std_header}')
+
+        return time_centers, avgs, stds
     
 
     def fraction_eq_is_invalid(self, fraction, property=None, file=None, verbose=False):

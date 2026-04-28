@@ -137,6 +137,9 @@ class Trajectory:
             with open(self.dir / 'history_output.txt', 'r') as f: 
                 content = f.readlines()
 
+            # Get the number of gas species
+            n_gas_species = len(content[0].split()) - 1
+
             # Count total number of states in trajectory
             n_states = sum(line.lstrip().startswith('configuration') for line in content)
 
@@ -156,7 +159,10 @@ class Trajectory:
             
             block_size = pos2 - pos  # Lines per configuration block
             # Check consistency
-            expected_block_size = 1 + nsites  # 1 header + nsites data
+            if n_gas_species == 0:
+                expected_block_size = 1 + nsites  # 1 header + nsites data
+            else:
+                expected_block_size = 2 + nsites  # 1 header + nsites data + gas species line
             if block_size != expected_block_size:
                 raise ValueError(f'block size: {block_size}, expected {expected_block_size}.')
 
@@ -180,6 +186,9 @@ class Trajectory:
                     st.ads_ids[site] = int(p[1])
                     st.occupation[site] = int(p[2])
                     st.dentation[site] = int(p[3])
+                
+                if n_gas_species > 1:
+                    st.gas_species_change = [int(s) for s in content[pos + 1 + nsites]]
 
                 self.states[k] = st
                 self.times[k] = time
@@ -412,18 +421,20 @@ class Trajectory:
         return self.times, intensities
         
 
-    def get_coverage_vs_time(self):
+    def get_coverages_vs_time(self):
         """
-        Get coverage as a function of time.
+        Get coverages of surface species as a function of time.
         
         Returns
         -------
         times : ndarray
             Time points
-        coverages : ndarray
-            Coverage at each time point
+        coverages : 2D-array (nstates, n_surf_species+1)
+            Partial coverages at each time point
         """
-        coverages = np.array([s.get_coverage() for s in self.states])
+        
+        coverages = np.array([s.get_coverages() for s in self.states])
+
         return self.times, coverages
         
     def __len__(self):
@@ -459,7 +470,7 @@ class Trajectory:
     def __repr__(self):
         """String representation of Trajectory"""
         if len(self) > 0:
-            t_range = f"t=[{self.times[0]:.2f}, {self.times[-1]:.2f}]"
+            t_range = f"t=[{self.times[0]:.2e}, {self.times[-1]:.2e}]"
         else:
             t_range = "empty"
         return f"Trajectory(nstates={len(self)}, {t_range}, lattice={len(self.lattice)} sites)"
