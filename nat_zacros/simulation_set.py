@@ -813,6 +813,125 @@ class SimulationSet:
         plt.show()    
 
 
+    def plot_coverages(self, covs_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
+        """Plot ensemble-averaged coverages vs time for the loaded simulations.
+        Parameters
+        ----------
+        covs_vs_time : list of tuples
+            Each tuple contains (times, energies, energies_std) for a simulation.
+        ncols : int, default 3
+            Number of columns in the subplot grid.
+        figsize : tuple, default (12, 3)
+            Figure size (width, height) in inches for each row.
+        title_fontsize : int, default 10
+            Font size for subplot titles.
+        suptitle_fontsize : int, default 16
+            Font size for the overall figure title.
+        show_eq : bool, default True
+            If True, show equilibration fraction on each subplot.
+        Returns
+        -------
+        None
+        """
+
+        # Set up subplots
+
+        nrows = int(np.ceil(len(self.simulations)/ncols))
+        figsize_scaled = (figsize[0], figsize[1] * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
+
+        fig_title = f'Ensemble averaged coverages vs time -- {self.data_path.parts[-1]}'
+        fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.0) # slightly lower y for better spacing
+
+        if not self.simulations:
+            print("No simulations loaded: Nothing to plot.")
+            return
+
+        # Iterate over loaded simulations in numerical order
+        for isim, key in enumerate(covs_vs_time.keys()):
+            sim = self.simulations[key]
+
+            # Get ensemble-averaged energy vs time and fraction for this simulation
+            times, covs, covs_std = covs_vs_time[key]
+
+            if show_eq:
+                try:
+                    fraction = self.fractions_eq[key] if self.fractions_eq[key] is not None else 0.0
+                except KeyError:
+                    raise KeyError(f"Equilibration fraction for simulation {key} not found in fractions_eq dictionary.")
+            else:
+                fraction = 0.0
+
+            # Plot energy as function of time using subplots
+            ax = axes[isim//ncols, isim%ncols]
+
+            # Determine time units
+            use_ms = len(times) > 0 and np.max(times) < 1.0
+            if use_ms:
+                times_plot = times * 1000
+                x_label = 'Time (ms)'
+            else:
+                times_plot = times
+                x_label = 'Time (s)'
+                
+            # Plot coverage versus percent of total time on bottom axis; show time on top axis
+            ax.grid()
+            title = f'Simulation #{key}:' \
+                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+            if show_eq:
+                title += f' ({fraction*100:.0f}%)'
+            ax.set_title(title, fontsize = title_fontsize)
+
+            # if len(times_plot) > 0 and times_plot[-1] != 0:
+            #     # Use the actual maximum time (not the last element) in case times are unsorted
+            #     times_arr = np.asarray(times_plot, dtype=float)
+            #     max_time = float(np.max(times_arr))
+            #     percent = (times_arr / max_time) * 100.0
+
+            #     ax.plot(percent, covs[:,1], marker='o', linestyle='-', markersize=2)
+            #     ax.set_xlabel('Percent of time (%)')
+            #     ax.set_ylabel('Coverage (ML)')
+
+            #     # Ensure percent axis spans 0-100 (0% -> time 0, 100% -> max_time)
+            #     ax.set_xlim(0.0, 100.0)
+
+            #     # Percent axis ticks: minor at 10%, major (and labels) at 20%
+            #     ax.xaxis.set_major_locator(MultipleLocator(20))
+            #     ax.xaxis.set_minor_locator(MultipleLocator(10))
+            #     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
+
+            #     # Shade equilibrium region in percent coordinates
+            #     eq_idx = int(np.round((1 - fraction) * (len(times) - 1)))
+            #     left_p = (times_arr[eq_idx] / max_time) * 100.0
+            #     ax.axvspan(left_p, 100.0, alpha=0.2, color='green') 
+            # else:
+                # Fallback: no valid times, plot energies vs times_plot as-is
+            ax.plot(times_plot, covs[:,1], marker='o', linestyle='-', markersize=2)
+            ax.set_xlabel(x_label)
+            ax.set_ylabel('Coverage (ML)')
+            # Shade equilibrium region if possible
+            if len(times_plot) > 0:
+                eq_idx = int(np.round((1 - fraction) * (len(times) - 1)))
+                ax.axvspan(times_plot[eq_idx], times_plot[-1], alpha=0.2, color='green')
+            else:
+                eq_idx = 0  # no shading possible
+
+            # Set y-axis limits based on equilibrium range (guard empty)
+            # if len(energies) > 0:
+            #     equilibrium_energies = energies[eq_idx:] if eq_idx < len(energies) - 1 and show_eq else energies
+            #     if len(equilibrium_energies) > 0:
+            #         ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
+
+        # Hide unused subplots
+        total_plots = len(axes.flatten())
+        for idx in range(len(covs_vs_time.keys()), total_plots):
+            ax = axes[idx//ncols, idx%ncols]
+            ax.axis('off')
+
+        plt.tight_layout()
+        plt.show()    
+
+
     def plot_rdfs(self, rdfs, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16):
         """Plot ensemble-averaged RDF for the loaded simulations.
         Parameters
