@@ -44,7 +44,7 @@ class State:
     -------
     load(idx=0)
         Read configuration from history_output.txt
-    get_coverage()
+    get_coverages()
         Calculate fraction of occupied sites
     get_occupied_sites()
         Get indices of occupied sites
@@ -528,6 +528,6 @@ class State:
 
     def __repr__(self):
         """String representation of State class"""
-        coverage = self.get_coverage()
+        coverage = self.get_coverages()
         return f"State(nsites={len(self.lattice)}, surf_species={self.surf_species_names}, "\
-               f"n_adsorbates={self.n_ads()}, coverage={coverage:.3f})"
+               f"n_adsorbates={self.n_ads()}, coverage={coverage})"

@@ -151,7 +151,7 @@ class Trajectory:
             pos = 0
             while pos < len(content) and not content[pos].lstrip().startswith('configuration'):
                 pos += 1
-            
+
             # Find the second configuration line to determine block size
             pos2 = pos + 1
             while pos2 < len(content) and not content[pos2].lstrip().startswith('configuration'):
@@ -188,7 +188,7 @@ class Trajectory:
                     st.dentation[site] = int(p[3])
                 
                 if n_gas_species > 1:
-                    st.gas_species_change = [int(s) for s in content[pos + 1 + nsites]]
+                    st.gas_species_change = [int(s) for s in content[pos + 1 + nsites].split()]
 
                 self.states[k] = st
                 self.times[k] = time
