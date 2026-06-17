@@ -489,9 +489,9 @@ class State:
             Array of occuied site indices
         """
         if species is None:
-            return np.where(self.occupation > 0)[0]
+            return np.where(self.occupation > 0)[0] + 1 # shift by 1 to match Zacros indexing
         else:
-            return np.where(self.occupation == self.surf_species_names[species] + 1)[0]
+            return np.where(self.occupation == self.surf_species_names[species] + 1)[0] + 1
 
     def get_empty_sites(self):
         """
