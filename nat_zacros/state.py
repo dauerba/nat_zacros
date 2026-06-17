@@ -44,6 +44,10 @@ class State:
     -------
     load(idx=0)
         Read configuration from history_output.txt
+    get_accessibility()
+        Get accessibilities
+    get_clusters()
+        Get clusters
     get_coverages()
         Calculate fraction of occupied sites
     get_occupied_sites()
@@ -343,9 +347,9 @@ class State:
         return np.arange(len(clusters)), clusters, sizes
 
 
-    def get_coverages(self):
+    def get_coverages(self, atoms_per_uc=1):
         """
-        Calculate the coverages for surface species (fraction of occupied sites).
+        Calculate the coverages for surface species (the ratio of adsorbate molecules to the number of structural surface molecules).
 
         Returns
         -------
@@ -356,7 +360,7 @@ class State:
 
         coverages = np.empty(self.n_surf_species + 1)
         indices, counts = np.unique(self.occupation, return_counts=True)
-        coverages[indices] = counts / len(self.occupation)
+        coverages[indices] = counts / (self.lattice.size[0] * self.lattice.size[1] * atoms_per_uc)
 
         # Here is another (probably, more efficient) way to count
         # we've chosen np.unique for it does not deal with zeros
@@ -528,6 +532,5 @@ class State:
 
     def __repr__(self):
         """String representation of State class"""
-        coverage = self.get_coverages()
-        return f"State(nsites={len(self.lattice)}, surf_species={self.surf_species_names}, "\
-               f"n_adsorbates={self.n_ads()}, coverage={coverage})"
+        occ = [ (k, len(self.get_occupied_sites(k))) for k in self.surf_species_names.keys()]
+        return f"State(nsites={len(self.lattice)}, adsorbates={occ})"

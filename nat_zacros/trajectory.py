@@ -421,7 +421,7 @@ class Trajectory:
         return self.times, intensities
         
 
-    def get_coverages_vs_time(self):
+    def get_coverages_vs_time(self, atoms_per_uc=1):
         """
         Get coverages of surface species as a function of time.
         
@@ -433,7 +433,7 @@ class Trajectory:
             Partial coverages at each time point
         """
         
-        coverages = np.array([s.get_coverages() for s in self.states])
+        coverages = np.array([s.get_coverages(atoms_per_uc=atoms_per_uc) for s in self.states])
 
         return self.times, coverages
         

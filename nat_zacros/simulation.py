@@ -979,11 +979,12 @@ class Simulation:
         """
         
         # Set defaults and update from pars_dict
-        pars = {'n_bins': 100}
+        pars = {'n_bins': 100, 'atoms_per_uc': 1}
         if pars_dict is not None:
             pars.update(pars_dict)
         
         n_bins = pars['n_bins']
+        atoms_per_uc = pars['atoms_per_uc']
         if n_bins <= 0:
             raise ValueError("The value of n_bins must be a positive integer.")
 
@@ -1004,7 +1005,7 @@ class Simulation:
         # For each trajectory, bin its energy measurements and average within bins
         hists = []
         for traj in self.trajectories.values():
-            times, coverages = traj.get_coverages_vs_time()
+            times, coverages = traj.get_coverages_vs_time(atoms_per_uc=atoms_per_uc)
             
             # Initialize binned energy and sample counts for this trajectory
             hist   = np.zeros((n_bins, coverages.shape[1]))
