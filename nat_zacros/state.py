@@ -489,9 +489,9 @@ class State:
             Array of occuied site indices
         """
         if species is None:
-            return np.where(self.occupation > 0)[0] + 1 # shift by 1 to match Zacros indexing
+            return np.where(self.occupation > 0)[0] 
         else:
-            return np.where(self.occupation == self.surf_species_names[species] + 1)[0] + 1
+            return np.where(self.occupation == self.surf_species_names[species] + 1)[0]
 
     def get_empty_sites(self):
         """
@@ -505,7 +505,7 @@ class State:
         return np.where(self.occupation == 0)[0]
 
     
-    def get_occupied_coords(self):
+    def get_occupied_coords(self, species=None):
         """
         Get Cartesian coordinates of occupied sites.
             
@@ -514,7 +514,10 @@ class State:
         ndarray
             (N, 2) array of coordinates for occupied sites
         """
-        mask = self.occupation > 0
+        if species is None:
+            mask = self.occupation > 0
+        else:
+            mask = self.occupation == self.surf_species_names[species] + 1
         return self.lattice.coordinates[mask]
 
 

@@ -906,9 +906,12 @@ class SimulationSet:
             #     ax.axvspan(left_p, 100.0, alpha=0.2, color='green') 
             # else:
                 # Fallback: no valid times, plot energies vs times_plot as-is
-            ax.plot(times_plot, covs[:,1], marker='o', linestyle='-', markersize=2)
+
+            for i in range(1,covs.shape[1]):
+                ax.plot(times_plot, covs[:,i], label=f'{sim.metadata["surf_species_names"][i-1]}')
             ax.set_xlabel(x_label)
             ax.set_ylabel('Coverage (ML)')
+            ax.legend()
             # Shade equilibrium region if possible
             if len(times_plot) > 0:
                 eq_idx = int(np.round((1 - fraction) * (len(times) - 1)))
