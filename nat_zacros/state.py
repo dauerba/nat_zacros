@@ -474,40 +474,89 @@ class State:
         return r_bins, g_r
 
 
-    def get_occupied_sites(self, species = None):
+    def get_occupied_sites(self, species = None, site_type=None):
         """
-        Get indices of sites occupied by a species.
+        Get indices of sites of site_type occupied by a species.
 
         Parameters
         ----------
         species : str or None; default None
             Surface species name; if None, include all species
-        
+        site_type : str or None; default None
+            Site type name; if None, include all site types
+
         Returns
         -------
         ndarray
-            Array of occuied site indices
+            Array of occupied site indices
         """
         if species is None:
-            return np.where(self.occupation > 0)[0] 
+            mask = self.occupation > 0
         else:
-            return np.where(self.occupation == self.surf_species_names[species] + 1)[0]
+            mask = self.occupation == self.surf_species_names[species] + 1
 
-    def get_empty_sites(self):
+        if site_type is not None:
+            site_types = self.lattice.site_types
+            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
+
+        return np.where(mask)[0]
+
+    def get_empty_sites(self, site_type=None):
         """
-        Get indices of all empty sites.
+        Get indices of all empty sites of a specific type.
+
+        Parameters
+        ----------
+        site_type : str or None; default None
+            Site type name; if None, include all site types
         
         Returns
         -------
         ndarray
             Array of site indices where occupation == 0
         """
-        return np.where(self.occupation == 0)[0]
+        mask = self.occupation == 0
+
+        if site_type is not None:
+            site_types = self.lattice.site_types
+            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
+
+        return np.where(mask)[0]
+
+    def get_empty_coords(self, site_type=None):
+        """
+        Get Cartesian coordinates of empty sites of site_type.
+
+        Parameters
+        ----------
+        site_type : str or None; default None
+            Site type name; if None, include all site types
+
+        Returns
+        -------
+        ndarray
+            (N, 2) array of coordinates for empty sites
+        """
+        mask = self.occupation == 0
+
+        if site_type is not None:
+            site_types = self.lattice.site_types
+            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
+
+        return self.lattice.coordinates[mask]
+    
 
     
-    def get_occupied_coords(self, species=None):
+    def get_occupied_coords(self, species=None, site_type=None):
         """
-        Get Cartesian coordinates of occupied sites.
+        Get Cartesian coordinates of sites of site_type occupied by a species.
+
+        Parameters
+        ----------
+        species : str or None; default None
+            Surface species name; if None, include all species
+        site_type : str or None; default None
+            Site type name; if None, include all site types
             
         Returns
         -------
@@ -518,6 +567,11 @@ class State:
             mask = self.occupation > 0
         else:
             mask = self.occupation == self.surf_species_names[species] + 1
+
+        if site_type is not None:
+            site_types = self.lattice.site_types
+            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
+
         return self.lattice.coordinates[mask]
 
 
