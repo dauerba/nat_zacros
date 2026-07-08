@@ -8,6 +8,9 @@ sequences of adsorbate configurations from Zacros KMC simulations.
 import pickle
 import numpy as np
 from pathlib import Path
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
 from .state import State
 
 class Trajectory:
@@ -436,7 +439,41 @@ class Trajectory:
         coverages = np.array([s.get_coverages(atoms_per_uc=atoms_per_uc) for s in self.states])
 
         return self.times, coverages
+
+    def animation(self, frames, interval=220, precision=2,
+                  # options for plot function of the state class
+                  scaling=1, ads_scaling=1.2, markers=None, colors=None, legend=True, show_axis=True):
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        def to_superscript_scientific(number, precision=2):
+            # 1. Format the number into standard 'e' notation
+            e_string = f"{number:.{precision}e}"
+            
+            # 2. Split the significand (mantissa) and the exponent
+            significand, exponent = e_string.split("e")
+            
+            # 3. Clean up the exponent (convert to int to strip leading zeros and '+' signs)
+            exponent_int = int(exponent)
+
+            str = rf'${significand}\times 10^{{{exponent_int}}}$'
         
+            return str
+
+        def update(frame):
+            ax.cla()
+            self.states[frame].plot(ax=ax, scaling=scaling, ads_scaling=ads_scaling, 
+                                    markers=markers, colors=colors, legend=legend, show_axis=show_axis)
+
+            str = rf'$t_{{{frame}}} = $ {to_superscript_scientific(self.times[frame], precision=precision)} s'
+            ax.text(0.03, 0.9, str, transform=ax.transAxes, ha='left', fontsize=10)
+
+            return ax
+
+
+        return FuncAnimation(fig, update, frames=frames, interval=interval, blit=False)
+
+
     def __len__(self):
         """
         Number of configurations in trajectory.

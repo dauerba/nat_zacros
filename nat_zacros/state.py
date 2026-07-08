@@ -8,6 +8,7 @@ configurations on a surface lattice from Zacros simulations.
 import numpy as np
 from pathlib import Path
 from scipy.spatial import cKDTree
+import matplotlib.pyplot as plt
 
 
 class State:
@@ -586,6 +587,80 @@ class State:
         """
         return np.count_nonzero(self.occupation)
 
+    def plot(self, ax=None, scaling=1, ads_scaling=1.2, markers=None, colors=None, legend=True,
+                    show_axis = True):
+        """Plot the state of the lattice.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None; default None
+            The axes on which to plot. If None, a new figure and axes are created.
+        scaling : float; default 1
+            Scaling factor for the size of the markers.
+        ads_scaling:
+
+        """
+
+        # Library of markers and colors for plotting different species and site types
+        markers_default =   ["s", "o", "v", "D", "p", "^", "+", "x", "*", "P", 
+                             "H", "X", "d", "h", ",", ".", "<", ">", "1", "2"]
+        colors_default = ["lightgray", "r", "g", "b", "m", "c", "k",
+                        "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
+                        "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan",
+                        "gold", "turquoise", "lime", "indigo"]
+
+        if markers is None:
+            markers = markers_default
+        elif len(markers) < len(self.lattice.site_type_names):
+            markers = markers_default
+            print(f"Not enough markers provided for {len(self.lattice.site_type_names)} site type(s). Using defaults.")
+        if colors is None:
+            colors = colors_default
+        elif len(colors) < self.n_surf_species + 1:
+            colors = colors_default
+            print(f"Not enough colors provided for {self.n_surf_species + 1} species. Using defaults.")
+
+        # Create a new figure and axes if none are provided
+        if not ax:
+            fig, ax = plt.subplots(figsize=(8,6))
+        
+        # Get temperature and coverages for the title
+        Ts = self.metadata['temperature']
+        sp_names = [sp[:-1] if sp.endswith('*') else sp for sp in list(self.surf_species_names.keys())]
+        covs = self.get_coverages()[1:]
+        title = f'T = {Ts} K, ' + ', '.join([fr'$\theta_{{{sp}}} = {{{covs[i]:.3f}}}$' for i, sp in enumerate(sp_names)])
+
+        # Set up the plot
+        ax.set_title(title)
+        ax.set_xlabel(r'x ($\AA$)')
+        ax.set_ylabel(r'y ($\AA$)')
+        ax.set_aspect(1.0)
+
+        # Set marker size based on the number of lattice sites and scaling factor
+        size = 1.5*440 / np.sqrt(len(self.lattice)) * scaling
+
+        # Put empty sites on the plot
+        for ist, st in enumerate(self.lattice.site_type_names):
+            x, y = self.get_empty_coords(site_type=st).T
+            if len(x) > 0:  # plot only if there are points to plot
+                ax.scatter(x, y, color=colors[0], marker= markers[ist], s=size, zorder=2,
+                        label= st)
+
+        # Loop over site types and surface species to plot occupied and empty sites
+        for isp in range(self.n_surf_species):
+            for ist, st in enumerate(self.lattice.site_type_names):
+
+                sp_name = list(self.surf_species_names.keys())[isp]
+                x, y = self.get_occupied_coords(species=sp_name, site_type=st).T
+                marker_size = size * ads_scaling
+                if len(x) > 0:  # plot only if there are points to plot
+                    ax.scatter(x, y, color=colors[isp+1], marker= markers[ist], s=marker_size, zorder=isp+2,
+                            label= sp_name + '-' + st)
+        if legend:
+            ax.legend(loc='lower right', frameon=False)
+        if not show_axis:
+            ax.axis('off')
+                    
 
     def __repr__(self):
         """String representation of State class"""
