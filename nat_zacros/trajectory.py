@@ -27,7 +27,6 @@ class Trajectory:
         Time points for each state
     energies : ndarray
         Total energy for each state
-# Warning 307!
     folder : str (must be str for pickle compatibility)
         Directory containing trajectory data
         
@@ -146,56 +145,65 @@ class Trajectory:
             # Count total number of states in trajectory
             n_states = sum(line.lstrip().startswith('configuration') for line in content)
 
-            self.times = np.empty(n_states, dtype=float)
-            self.energies = np.empty(n_states, dtype=float)
-            self.states = [None] * n_states
-
-            # Find the first configuration line
-            pos = 0
-            while pos < len(content) and not content[pos].lstrip().startswith('configuration'):
-                pos += 1
-
-            # Find the second configuration line to determine block size
-            pos2 = pos + 1
-            while pos2 < len(content) and not content[pos2].lstrip().startswith('configuration'):
-                pos2 += 1
-            
-            block_size = pos2 - pos  # Lines per configuration block
-            # Check consistency
-            if n_gas_species == 0:
-                expected_block_size = 1 + nsites  # 1 header + nsites data
-            else:
-                expected_block_size = 2 + nsites  # 1 header + nsites data + gas species line
-            if block_size != expected_block_size:
-                raise ValueError(f'block size: {block_size}, expected {expected_block_size}.')
-
-            for k in range(n_states):
-
-                pos = 6 + k * block_size
-                line = content[pos]
-
-                try:
-                    parts = line.split()
-                    time = float(parts[3])
-                    energy = float(parts[5])
-                except (ValueError, IndexError):
-                    raise ValueError(f'{str(self.dir.name)}: Failed to parse line: {line.strip()}')
-
+            if n_states == 0: # history_output.txt does not have configurations
+                n_states = 1
                 st = State(self.lattice, self.metadata, dirname=self.dir)
 
-                for site in range(nsites):
-                    site_line = content[pos + 1 + site]
-                    p = site_line.split()
-                    st.ads_ids[site] = int(p[1])
-                    st.occupation[site] = int(p[2])
-                    st.dentation[site] = int(p[3])
-                
-                if n_gas_species > 1:
-                    st.gas_species_change = [int(s) for s in content[pos + 1 + nsites].split()]
+                self.times = np.zeros(n_states, dtype=float)
+                self.energies = np.zeros(n_states, dtype=float)
+                self.states = [st] * n_states
 
-                self.states[k] = st
-                self.times[k] = time
-                self.energies[k] = energy
+            else:
+                self.times = np.empty(n_states, dtype=float)
+                self.energies = np.empty(n_states, dtype=float)
+                self.states = [None] * n_states
+
+                # Find the first configuration line
+                pos = 0
+                while pos < len(content) and not content[pos].lstrip().startswith('configuration'):
+                    pos += 1
+
+                # Find the second configuration line to determine block size
+                pos2 = pos + 1
+                while pos2 < len(content) and not content[pos2].lstrip().startswith('configuration'):
+                    pos2 += 1
+                
+                block_size = pos2 - pos  # Lines per configuration block
+                # Check consistency
+                if n_gas_species == 0:
+                    expected_block_size = 1 + nsites  # 1 header + nsites data
+                else:
+                    expected_block_size = 2 + nsites  # 1 header + nsites data + gas species line
+                if block_size != expected_block_size:
+                    raise ValueError(f'block size: {block_size}, expected {expected_block_size}.')
+
+                for k in range(n_states):
+
+                    pos = 6 + k * block_size
+                    line = content[pos]
+
+                    try:
+                        parts = line.split()
+                        time = float(parts[3])
+                        energy = float(parts[5])
+                    except (ValueError, IndexError):
+                        raise ValueError(f'{str(self.dir.name)}: Failed to parse line: {line.strip()}')
+
+                    st = State(self.lattice, self.metadata, dirname=self.dir)
+
+                    for site in range(nsites):
+                        site_line = content[pos + 1 + site]
+                        p = site_line.split()
+                        st.ads_ids[site] = int(p[1])
+                        st.occupation[site] = int(p[2])
+                        st.dentation[site] = int(p[3])
+                    
+                    if n_gas_species > 1:
+                        st.gas_species_change = [int(s) for s in content[pos + 1 + nsites].split()]
+
+                    self.states[k] = st
+                    self.times[k] = time
+                    self.energies[k] = energy
 
             # Save to cache
             if cache:
