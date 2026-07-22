@@ -306,7 +306,7 @@ class Simulation:
             return {}
 
 
-    def load(self, cache=True, verbose=False):
+    def load(self, cache=True, zfile='history_output', verbose=False):
         """
         Load trajectory data with caching support.
 
@@ -315,6 +315,8 @@ class Simulation:
         cache : bool, default True
             If True, load cached trajectory data if available; cache trajectory data if not already cached.
             If False, load from raw simulation data.
+        zfile: str, default 'history_output'
+            selects zacros output file from which to read states
         verbose : bool, default False
             If True, print detailed loading information.
         """
@@ -327,7 +329,7 @@ class Simulation:
             print(f"Loading {len(self.traj_dirs)} trajectories...")
 
         for traj in self.trajectories.values():
-            traj.load(cache=cache, verbose=verbose)
+            traj.load(cache=cache, zfile=zfile, verbose=verbose)
         self.is_loaded = True
 
         if verbose:

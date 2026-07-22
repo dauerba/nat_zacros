@@ -557,7 +557,7 @@ class SimulationSet:
         return fit_results
 
 
-    def load(self, cache=True, workers=mp.cpu_count(), simulations=None, verbose=False):
+    def load(self, cache=True, zfile='history_output', workers=mp.cpu_count(), simulations=None, verbose=False):
         """
         Load data for simulations in the set.
         
@@ -566,6 +566,8 @@ class SimulationSet:
         cache : bool, default True
             If True, load cached trajectory data if available; cache trajectory data if not already cached.
             if False, load from raw simulation data.
+        zfile: str, default 'history_output'
+            selects zacros output file from which to read states
         simulations : Any, list[Any] or None
             Specification of simulations to load; None => load all in set.
         verbose : bool, default False
@@ -578,7 +580,7 @@ class SimulationSet:
         # Load simulations selected
         for key in self._arg_to_list(simulations):
             if key in self.simulations.keys():
-                self.simulations[key].load(cache=cache, verbose=verbose)
+                self.simulations[key].load(cache=cache, zfile=zfile, verbose=verbose)
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
