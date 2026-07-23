@@ -194,6 +194,12 @@ class State:
                 
         return acc13_list, acc2_list
 
+    def get_ads_site(self, idx):
+        """
+        Get the site of an adsorbate idx
+        """
+        return (self.ads_ids == idx).argmax()
+
     def get_clusters(self, cutoff, eps=1e-4):
         """
         Cluster 2D points with periodic boundary conditions

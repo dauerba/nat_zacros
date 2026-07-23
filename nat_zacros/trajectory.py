@@ -10,7 +10,7 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from copy import deepcopy
+import copy
 
 from .state import State
 
@@ -159,6 +159,7 @@ class Trajectory:
                     self.states = [st] * n_states
 
                 else:
+
                     self.times = np.empty(n_states, dtype=float)
                     self.energies = np.empty(n_states, dtype=float)
                     self.states = [None] * n_states
@@ -244,22 +245,25 @@ class Trajectory:
                 self.energies = np.empty(n_states, dtype=float)
                 self.states = [None] * n_states
 
-
                 # Get initial state
                 st = State(self.lattice, self.metadata, dirname=self.dir)
+                ads_counter = 0
                 for line in content:
+                    
                     if 'Surface species dentation' in line:
                         dent = [int(str) for str in line.split()[3:]]
 
                     if 'adparticle' in line:
                         l_split = line.split()
                         sp_idx = st.surf_species_names[ l_split[0] ]
+                        ads_counter += 1
 
                         sites = [int(s) for s in l_split[-dent[sp_idx]:]]
                         for site in sites:
                             # Account for Zacros numbering of sites and species
                             st.occupation[site-1] = sp_idx + 1
                             st.dentation[site-1] = dent[sp_idx]
+                            st.ads_ids[site-1] = ads_counter
                 
                     if 'Total adlayer energy:' in line:
                         en = float(line.split()[-1])
@@ -270,63 +274,75 @@ class Trajectory:
                 self.times[0] = 0.0
                 self.energies[0] = en
 
-                # Loop to get states forming the trajectory
-                k = 1
+                # Finde the 1st line with kmc step
                 for iline, line in enumerate(content):
+                    if 'KMC step' in line: break                        
 
-                    if 'KMC step' in line:
-                        # Get the state info:
-                        # kmc step
-                        step = int(line.split()[-1])
-                        # reaction
-                        reaction_name = content[iline+1].split()[-1]
-                        # time
-                        time = float(content[iline+2].split()[-1])
-                        # sites involved
-                        sites_inv = [ int(s) for s in content[iline+3].split()[2:] ]
-                        # change of the energy
-                        delta_en = float(content[iline+7].split()[-1])
+                # Loop to get states forming the trajectory
+                for k in range(1, n_states):
 
-                        # Get the previous state
-                        st = deepcopy(self.states[k-1])
+                    # Get the state info:
+                    # kmc step
+                    step = int(line.split()[-1])
+                    # reaction
+                    reaction_name = content[iline+1].split()[-1]
+                    # time
+                    time = float(content[iline+2].split()[-1])
+                    # sites involved
+                    sites_inv = [ int(s) for s in content[iline+3].split()[2:] ]
+                    # change of the energy
+                    delta_en = float(content[iline+7].split()[-1])
 
-                        # modify it
-                        if 'hopping' in reaction_name:
-                            dent = len(sites_inv) // 2
-                            for i in range(dent):
-                                idx_r = sites_inv[i] - 1
-                                idx_p = sites_inv[-i-1] - 1
-                                if 'rev' in reaction_name:
-                                    idx_p = sites_inv[i] - 1
-                                    idx_r = sites_inv[-i-1] - 1
+                    # Shift the line index to the next KMC step record
+                    iline += 9
 
-                                # save reactant data
-                                occ = st.occupation[idx_r]
+                    # Get the previous state
+                    # st = deepcopy(self.states[k-1])
+                    st = State(self.lattice, self.metadata, dirname=self.dir)
+                    st.occupation = copy.copy(self.states[k-1].occupation)
+                    st.dentation  = copy.copy(self.states[k-1].dentation)
+                    st.ads_ids    = copy.copy(self.states[k-1].ads_ids)
 
-                                # Remove reactant from the lattice
-                                st.occupation[idx_r] = 0
-                                st.dentation[ idx_r] = 0
+                    # modify it
+                    if 'hopping' in reaction_name:
+                        dent = len(sites_inv) // 2
+                        for i in range(dent):
+                            idx_r = sites_inv[i] - 1
+                            idx_p = sites_inv[-i-1] - 1
+                            if 'rev' in reaction_name:
+                                idx_p = sites_inv[i] - 1
+                                idx_r = sites_inv[-i-1] - 1
 
-                                # Put product on the lattice
-                                st.occupation[idx_p] = occ
-                                st.dentation[ idx_p] = dent
+                            # save reactant data
+                            occ = st.occupation[idx_r]
+                            ads = st.ads_ids[idx_r]
 
-                        elif 'desorption' in reaction_name:
-                            dent = len(sites_inv)
-                            for i in range(dent):
-                                idx_r = sites_inv[i] - 1
+                            # Remove reactant from the lattice
+                            st.occupation[idx_r] = 0
+                            st.dentation[ idx_r] = 0
+                            st.ads_ids[   idx_r] = 0
 
-                                # Remove reactant from the lattice
-                                st.occupation[idx_r] = 0
-                                st.dentation[ idx_r] = 0
-                        
-                        else:
-                            print('trajectory load function: general_output reading warning: reaction unknown.')
+                            # Put product on the lattice
+                            st.occupation[idx_p] = occ
+                            st.dentation[ idx_p] = dent
+                            st.ads_ids[   idx_p] = ads
 
-                        self.states[k] = st
-                        self.times[k] = time
-                        self.energies[k] = delta_en + self.energies[k-1]
-                        k += 1
+                    elif 'desorption' in reaction_name:
+                        dent = len(sites_inv)
+                        for i in range(dent):
+                            idx_r = sites_inv[i] - 1
+
+                            # Remove reactant from the lattice
+                            st.occupation[idx_r] = 0
+                            st.dentation[ idx_r] = 0
+                            st.ads_ids[   idx_r] = 0
+                    
+                    else:
+                        print('trajectory load function: general_output reading warning: reaction unknown.')
+
+                    self.states[k] = st
+                    self.times[k] = time
+                    self.energies[k] = delta_en + self.energies[k-1]
 
 
             except Exception as e:
@@ -565,6 +581,22 @@ class Trajectory:
         coverages = np.array([s.get_coverages(atoms_per_uc=atoms_per_uc) for s in self.states])
 
         return self.times, coverages
+
+    def get_ads_path(self, idx, trim_zeros=False):
+        """
+        Get the path of an adsorbate idx
+        """
+
+        ads_path = np.empty(len(self), dtype=int)
+
+        for i,st in enumerate(self.states):
+            ads_path[i] = st.get_ads_site(idx)
+
+        if trim_zeros:
+            return np.trim_zeros(ads_path, 'b')
+        else:
+            return ads_path
+
 
     def animation(self, frames, interval=220, precision=2,
                   # options for plot function of the state class

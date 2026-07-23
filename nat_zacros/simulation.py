@@ -322,7 +322,11 @@ class Simulation:
         """
 
         # Determine cache file path and extension
-        print(f"Loading simulation {self.dir.name} with caching {'enabled' if cache else 'disabled'}...")
+        if zfile=='history_output':
+            print(f"Loading simulation {self.dir.name} with caching {'enabled' if cache else 'disabled'}...")
+        if zfile=='general_output':
+            print(f"Loading simulation {self.dir.name}...")
+
 
         # Load trajectories from files
         if verbose:
