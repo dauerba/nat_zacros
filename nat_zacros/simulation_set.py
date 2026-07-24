@@ -90,9 +90,12 @@ class SimulationSet:
     -----
     The `get()` method is the central entry point for all ensemble analysis.
     Supported property keys and their default parameters:
-    - 'energy': {'n_bins': 100}
-    - 'rdf': {'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
     - 'accessibility': {'fraction': 1.0}
+    - 'cluster': {'cutoff': <3rd NN distance>, 'eps': 1e-4, 'fraction': 1.0, 'method': 'ckdtree'}
+    - 'coverage': {'n_bins': 100, 'atoms_per_uc': 1}
+    - 'energy': {'n_bins': 100}
+    - 'leed': {'n_bins': 100, 'r': <3rd NN distance>}
+    - 'rdf': {'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
     """
 
     def __init__(self, data_path, 
@@ -824,12 +827,12 @@ class SimulationSet:
         plt.show()    
 
 
-    def plot_coverages(self, covs_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
+    def plot_coverages(self, covs_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True, species=None):
         """Plot ensemble-averaged coverages vs time for the loaded simulations.
         Parameters
         ----------
-        covs_vs_time : list of tuples
-            Each tuple contains (times, energies, energies_std) for a simulation.
+        covs_vs_time : dict
+            Dictionary mapping simulation keys to tuples of (times, coverages, coverages_std).
         ncols : int, default 3
             Number of columns in the subplot grid.
         figsize : tuple, default (12, 3)
@@ -840,6 +843,9 @@ class SimulationSet:
             Font size for the overall figure title.
         show_eq : bool, default True
             If True, show equilibration fraction on each subplot.
+        species : str, list of str, or None, default None
+            If None, plot all species. If str, plot only that species.
+            If list of str, plot only those species.
         Returns
         -------
         None
@@ -918,7 +924,24 @@ class SimulationSet:
             # else:
                 # Fallback: no valid times, plot energies vs times_plot as-is
 
-            for i in range(1,covs.shape[1]):
+            # Determine which species to plot
+            if species is None:
+                # Plot all species
+                species_indices = range(1, covs.shape[1])
+            else:
+                # Convert species to list if it's a string
+                species_list = [species] if isinstance(species, str) else species
+                # Find indices for requested species
+                species_indices = []
+                for sp in species_list:
+                    if sp in sim.metadata["surf_species_names"]:
+                        # Add 1 because covs[:,0] is total coverage
+                        idx = sim.metadata["surf_species_names"].index(sp) + 1
+                        species_indices.append(idx)
+                    else:
+                        print(f"Warning: Species '{sp}' not found in simulation {key}. Available: {sim.metadata['surf_species_names']}")
+
+            for i in species_indices:
                 ax.plot(times_plot, covs[:,i], label=f'{sim.metadata["surf_species_names"][i-1]}')
             ax.set_xlabel(x_label)
             ax.set_ylabel('Coverage (ML)')
