@@ -366,16 +366,21 @@ class Simulation:
 
     def clear_traj_cache(self, verbose=False):
         """Clear trajectory cache files.
-
+        
+        Returns
+        -------
+        int
+            Number of cache files actually deleted
         """
         # Clearing cache from files
         if verbose:
             print(f"Clearing trajectory cache for simulation {self.dir.name}...")
 
+        deleted_count = 0
         for traj in self.trajectories.values():
-            traj.clear_cache(verbose=verbose)
+            deleted_count += traj.clear_cache(verbose=verbose)
 
-        return len(self.trajectories)  # Return number of trajectories cleared
+        return deleted_count
     
     def clear_results(self, fnames, verbose=False):
         """Clear cached results file.

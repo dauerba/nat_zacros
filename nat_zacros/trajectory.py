@@ -378,11 +378,18 @@ class Trajectory:
         ----------
         verbose : bool, default False
             If True, print detailed clearing information.
+            
+        Returns
+        -------
+        int
+            1 if a cache file was deleted, 0 otherwise
         """
         if self.cache_file.exists():
             self.cache_file.unlink()
             if verbose:
                 print(f"Cleared cache for trajectory {self.dir.name}")
+            return 1
+        return 0
 
 
 

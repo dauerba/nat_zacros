@@ -341,7 +341,10 @@ class SimulationSet:
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
-        print(f"Deleted {total_count} trajectory cache file(s).")
+        if total_count > 0:
+            print(f"Deleted {total_count} trajectory cache file(s).")
+        else:
+            print(f"No trajectory cache files found to delete.")
 
     def clear_results(self, target='all', simulations=None, verbose=False):
         """
