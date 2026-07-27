@@ -604,6 +604,53 @@ class Trajectory:
         else:
             return ads_path
 
+    def get_2d_lattice_indices(self, ads_id, expand = False):
+        """
+        Convert 1D lattice site indices to 2D matrix coordinates for a specific adsorbate.
+        
+        Parameters
+        ----------
+        ads_id : int
+            The unique adsorbate ID to track along the trajectory
+        expand: boolean, default: False
+            if True, expands the lattice beyond periodic boundaries
+        
+        Returns
+        -------
+        cols : array of int
+            Column indices (x-coordinates) of the adsorbate at each state
+        rows : array of int
+            Row indices (y-coordinates) of the adsorbate at each state
+            
+        """
+        # Total sites per col in the 2D lattice
+        sites_per_col = self.lattice.size[0] * self.lattice.n_cell_sites
+
+        # Get sites occupied by adsorbate with ads_id
+        sites = self.get_ads_path(ads_id, trim_zeros=True)
+
+        # Convert site indices to the 2D form    
+        cols = sites // sites_per_col
+        rows = sites %  sites_per_col // self.lattice.n_cell_sites
+
+        if expand:
+
+            # Get lattice size
+            lattice_size = self.lattice.size
+
+            diffs = np.diff(cols), np.diff(rows)
+            
+            wrap_jumps = [ np.where(diffs[i] == lattice_size[i] - 1, -lattice_size[i],
+                        np.where(diffs[i] == 1 - lattice_size[i], lattice_size[i], 0)) for i in range(2)]
+
+            cumulative_shift = [np.concatenate([[0], np.cumsum(wj)]) for wj in wrap_jumps]
+
+            return (np.array(cols + cumulative_shift[0], dtype=int), 
+                    np.array(rows + cumulative_shift[1], dtype=int) )
+        
+        else:
+            return cols, rows
+
 
     def animation(self, frames, interval=220, precision=2,
                   # options for plot function of the state class

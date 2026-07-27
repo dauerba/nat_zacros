@@ -200,6 +200,28 @@ class State:
         """
         return (self.ads_ids == idx).argmax()
 
+    def get_ads_ids(self, species):
+        """
+        Get adsorbate IDs for all sites occupied by a specific species.
+        
+        Parameters
+        ----------
+        species : str or int
+            Name or index of the surface species
+            
+        Returns
+        -------
+        ndarray
+            Array of adsorbate IDs at sites occupied by the specified species.
+            Returns an empty array if no sites are occupied by this species.
+            
+        Notes
+        -----
+        Zacros uses 1-based indexing for species IDs, so +1 is added when
+        converting from the 0-based Python indexing of surf_species_names.
+        """
+        return self.ads_ids[self.occupation == self.surf_species_names[species] + 1]
+
     def get_clusters(self, cutoff, eps=1e-4):
         """
         Cluster 2D points with periodic boundary conditions
