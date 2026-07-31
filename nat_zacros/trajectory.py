@@ -24,6 +24,10 @@ class Trajectory:
         The underlying surface lattice
     states : list of State objects
         Sequence of configurations
+    initial_state : State object
+        The inital configuration
+    state_deltas : list of ...
+        List of configuration changes relative initial state
     times : ndarray
         Time points for each state
     energies : ndarray
@@ -70,6 +74,8 @@ class Trajectory:
         self.dir = Path(dir)
         self.lattice = lattice
         self.states = []
+        self.initial_state = None
+        self.state_deltas = []
         self.times = []
         self.energies = []
         self.cache_file = self.dir / cache_file
