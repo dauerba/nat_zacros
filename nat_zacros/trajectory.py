@@ -6,6 +6,7 @@ sequences of adsorbate configurations from Zacros KMC simulations.
 """
 
 import pickle
+from turtle import st
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -24,8 +25,8 @@ class Trajectory:
         The underlying surface lattice
     states : list of State objects
         Sequence of configurations
-    initial_state : State object
-        The inital configuration
+    initial_state : State object, default None
+        The initial configuration
     state_deltas : list of ...
         List of configuration changes relative initial state
     times : ndarray
@@ -130,6 +131,43 @@ class Trajectory:
         verbose : bool, default False
             If True, print detailed loading information.
         """
+
+
+        # Initialize the initial state object
+        st = State(self.lattice, self.metadata, dirname=self.dir)
+
+        # Get the initial state from 'general_output.txt' if available
+        try:
+            with open(self.dir / 'general_output.txt', 'r') as f: 
+
+                ads_counter = 0
+                for line in f:
+
+                    if 'Surface species dentation' in line:
+                        dent = [int(str) for str in line.split()[3:]]
+
+                    if 'adparticle to be seeded on site' in line:
+                        l_split = line.split()
+                        sp_idx = st.surf_species_names[ l_split[0] ]
+                        ads_counter += 1
+
+                        sites = [int(s) for s in l_split[-dent[sp_idx]:]]
+                        for site in sites:
+                            # Account for Zacros numbering of sites and species
+                            st.occupation[site-1] = sp_idx + 1
+                            st.dentation[site-1] = dent[sp_idx]
+                            st.ads_ids[site-1] = ads_counter
+                
+                    if 'Total adlayer energy:' in line:
+                        en = float(line.split()[-1])
+                        # We need the initial state only
+                        break
+                    
+            self.initial_state = st
+
+        except FileNotFoundError:
+            print(f"{str(self.dir)}: Initial state not found.")
+
 
         if zfile=='history_output':
 
@@ -242,50 +280,25 @@ class Trajectory:
                 for line in reversed(content):
 
                     if 'Events occurred' in line:
-                        # Get the number of states including initial state
-                        n_states = int(line.split()[-1]) + 1
+                        # Get the number of states
+                        n_states = int(line.split()[-1])
                         break
 
                 # Allocate arrays
-                self.times = np.empty(n_states, dtype=float)
-                self.energies = np.empty(n_states, dtype=float)
-                self.states = [None] * n_states
+                self.times = np.empty(n_states + 1, dtype=float)
+                self.energies = np.empty(n_states + 1, dtype=float)
+                self.state_deltas = [None] * n_states
 
-                # Get initial state
-                st = State(self.lattice, self.metadata, dirname=self.dir)
-                ads_counter = 0
-                for line in content:
-                    
-                    if 'Surface species dentation' in line:
-                        dent = [int(str) for str in line.split()[3:]]
-
-                    if 'adparticle' in line:
-                        l_split = line.split()
-                        sp_idx = st.surf_species_names[ l_split[0] ]
-                        ads_counter += 1
-
-                        sites = [int(s) for s in l_split[-dent[sp_idx]:]]
-                        for site in sites:
-                            # Account for Zacros numbering of sites and species
-                            st.occupation[site-1] = sp_idx + 1
-                            st.dentation[site-1] = dent[sp_idx]
-                            st.ads_ids[site-1] = ads_counter
-                
-                    if 'Total adlayer energy:' in line:
-                        en = float(line.split()[-1])
-                        # We need the initial state only
-                        break
-
-                self.states[0] = st
-                self.times[0] = 0.0
+                # Save initial values for time and energy
+                self.times[0]    = 0.0
                 self.energies[0] = en
 
-                # Finde the 1st line with kmc step
+                # Find the 1st line with kmc step
                 for iline, line in enumerate(content):
                     if 'KMC step' in line: break                        
 
                 # Loop to get states forming the trajectory
-                for k in range(1, n_states):
+                for k in range(n_states):
 
                     # Get the state info:
                     # kmc step
@@ -302,60 +315,16 @@ class Trajectory:
                     # Shift the line index to the next KMC step record
                     iline += 9
 
-                    # Get the previous state
-                    # st = deepcopy(self.states[k-1])
-                    st = State(self.lattice, self.metadata, dirname=self.dir)
-                    st.occupation = copy.copy(self.states[k-1].occupation)
-                    st.dentation  = copy.copy(self.states[k-1].dentation)
-                    st.ads_ids    = copy.copy(self.states[k-1].ads_ids)
-
-                    # modify it
-                    if 'hopping' in reaction_name:
-                        dent = len(sites_inv) // 2
-                        for i in range(dent):
-                            idx_r = sites_inv[i] - 1
-                            idx_p = sites_inv[-i-1] - 1
-                            if 'rev' in reaction_name:
-                                idx_p = sites_inv[i] - 1
-                                idx_r = sites_inv[-i-1] - 1
-
-                            # save reactant data
-                            occ = st.occupation[idx_r]
-                            ads = st.ads_ids[idx_r]
-
-                            # Remove reactant from the lattice
-                            st.occupation[idx_r] = 0
-                            st.dentation[ idx_r] = 0
-                            st.ads_ids[   idx_r] = 0
-
-                            # Put product on the lattice
-                            st.occupation[idx_p] = occ
-                            st.dentation[ idx_p] = dent
-                            st.ads_ids[   idx_p] = ads
-
-                    elif 'desorption' in reaction_name:
-                        dent = len(sites_inv)
-                        for i in range(dent):
-                            idx_r = sites_inv[i] - 1
-
-                            # Remove reactant from the lattice
-                            st.occupation[idx_r] = 0
-                            st.dentation[ idx_r] = 0
-                            st.ads_ids[   idx_r] = 0
-                    
-                    else:
-                        print('trajectory load function: general_output reading warning: reaction unknown.')
-
-                    self.states[k] = st
-                    self.times[k] = time
-                    self.energies[k] = delta_en + self.energies[k-1]
-
+                    self.times[k+1] = time
+                    self.energies[k+1] = delta_en + self.energies[k]
+                    self.state_deltas[k] = (reaction_name, sites_inv)
 
             except Exception as e:
                 print(f'Error loading trajectory from {str(self.dir)}: {e}')
 
         else:
             print(f'Error loading trajectory: output file {zfile} unknown.')
+
 
 
     def unload(self, verbose=False):

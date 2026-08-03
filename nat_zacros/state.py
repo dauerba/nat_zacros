@@ -115,6 +115,78 @@ class State:
         self.dentation =  np.zeros(nsites, dtype=int)
 
 
+    def create_from_deltas(self, deltas):
+        """
+        Create a new state from a list of deltas.
+        
+        Parameters
+        ----------
+        deltas : list of tuples
+            Each tuple contains (reaction_name, sites_inv) representing
+            the reaction and the involved sites that change the state.
+            
+        Returns
+        -------
+        new_state : State
+            A new State object representing the configuration after applying the deltas.
+        """
+
+        # Initialize a new state object with the same lattice and metadata
+        new_state = State(self.lattice, self.metadata, self.dir)
+
+        # Initialize arrays for the new state
+        new_state.ads_ids = np.copy(self.ads_ids)
+        new_state.occupation = np.copy(self.occupation)
+        new_state.dentation = np.copy(self.dentation)
+
+        # Apply each delta to update the state
+        for reaction_name, sites_inv in deltas:
+
+            if 'hopping' in reaction_name:
+
+                dent = len(sites_inv) // 2
+                for i in range(dent):
+                    if 'rev' in reaction_name:
+                        idx_p = sites_inv[i] - 1
+                        idx_r = sites_inv[-i-1] - 1
+                    else:
+                        idx_r = sites_inv[i] - 1
+                        idx_p = sites_inv[-i-1] - 1
+
+
+                    # save reactant data
+                    occ = new_state.occupation[idx_r]
+                    ads = new_state.ads_ids[idx_r]
+
+                    # Remove reactant from the lattice
+                    new_state.occupation[idx_r] = 0
+                    new_state.dentation[ idx_r] = 0
+                    new_state.ads_ids[   idx_r] = 0
+
+                    # Put product on the lattice
+                    new_state.occupation[idx_p] = occ
+                    new_state.dentation[ idx_p] = dent
+                    new_state.ads_ids[   idx_p] = ads
+
+            elif 'desorption' in reaction_name:
+
+                dent = len(sites_inv)
+                for i in range(dent):
+                    idx_r = sites_inv[i] - 1
+
+                    # Remove reactant from the lattice
+                    new_state.occupation[idx_r] = 0
+                    new_state.dentation[ idx_r] = 0
+                    new_state.ads_ids[   idx_r] = 0
+
+            else:
+                print(f"Reaction {reaction_name} not recognized. No changes made to state.")
+                return None
+
+        return new_state
+
+
+
     def load(self, idx=0, verbose=False):
         """
         Read configuration from history_output.txt file.
