@@ -17,59 +17,49 @@ from .state import State
 
 class Trajectory:
     """
-    Container for a sequence of lattice states over time.
-    
+    Store one Zacros trajectory as a time-ordered sequence of lattice states.
+
+    Depending on how it is loaded, a trajectory can hold either full lattice
+    snapshots from ``history_output.txt`` or event-style state deltas derived
+    from ``general_output.txt``.
+
     Attributes
     ----------
-    lattice : Lattice object
-        The underlying surface lattice
-    states : list of State objects
-        Sequence of configurations
-    initial_state : State object, default None
-        The initial configuration
-    state_deltas : list of ...
-        List of configuration changes relative initial state
+    dir : pathlib.Path
+        Directory containing the Zacros output files for this trajectory.
+    lattice : Lattice
+        Lattice shared with the parent simulation.
+    metadata : dict
+        Metadata required to interpret species identifiers and coverage.
+    states : list[State]
+        Loaded state snapshots. Populated when reading ``history_output``.
+    initial_state : State or None
+        Initial state reconstructed from ``general_output.txt`` when available.
+    state_deltas : list[tuple[str, list[int]]]
+        Event records stored as ``(reaction_name, sites_involved)`` tuples when
+        reading ``general_output``.
     times : ndarray
-        Time points for each state
+        Simulation times corresponding to the loaded snapshots or event records.
     energies : ndarray
-        Total energy for each state
-    folder : str (must be str for pickle compatibility)
-        Directory containing trajectory data
-        
-    Methods
-    -------
-    load(...)
-        Load states from history_output.txt
-    add_state(state, time, energy)
-        Add a state to the trajectory
-    get_energy_vs_time()
-        Get energy as function of time
-    estimate_equilibration(fraction=0.5)
-        Estimate equilibration index
-    get_accessibility_histogram()
-        Calculate histogram of site accessibility
-    get_cluster_distribution(nn_cutoff)
-        Calculate cluster size distribution
-    get_coverage_vs_time()
-        Get coverage as function of time
-    get_energy_vs_time()
-        Get energy as function of time
-    get_g_ref(r_max, dr)
-        Calculate reference RDF for normalization
-    get_rdf(r_max, dr, g_ref, vectorized)
-        Calculate radial distribution function
+        Total energies aligned with ``times``.
+    cache_file : pathlib.Path
+        Pickle file used to cache parsed ``history_output`` snapshots.
     """
     
     def __init__(self, dir, lattice, metadata, cache_file='traj.pkl'):
         """
-        Initialize trajectory with lattice and optional data folder.
+        Initialize a trajectory container.
         
         Parameters
         ----------
-        lattice : Lattice object
-            The surface lattice for this trajectory
         dir : str or Path, optional
-            Directory containing history_output.txt
+            Directory containing the trajectory output files.
+        lattice : Lattice object
+            The surface lattice used by this trajectory.
+        metadata : dict
+            Metadata required to interpret surface species.
+        cache_file : str, default 'traj.pkl'
+            File name of the pickle cache stored inside ``dir``.
         """
 
         self.dir = Path(dir)
@@ -119,17 +109,33 @@ class Trajectory:
                 
     def load(self, cache=True, zfile='history_output', verbose=False):
         """
-        Load states from the output defined by zfile.
+        Load trajectory data from Zacros output files.
+
+        The loader supports two modes controlled by ``zfile``:
+        - ``'history_output'`` (default): reads full per-site configurations from ``history_output.txt``
+          and populates ``self.states``, ``self.times``, and ``self.energies``. When ``cache=True`` the
+          parsed trajectory is saved to and loaded from a pickle cache file (``traj.pkl`` by default).
+        - ``'general_output'``: reads event/delta-style records from ``general_output.txt`` and
+          populates ``self.times``, ``self.energies`` and ``self.state_deltas``. The initial state
+          is read (if available) from ``general_output.txt`` earlier in this method.
 
         Parameters
         ----------
         cache : bool, default True
-            If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
-            If False, load from raw simulation data.
-        zfile: str, default 'history_output'
-            selects zacros output file from which to read states
+            If True, attempt to load a cached trajectory (pickle) when available and write the cache
+            after successfully parsing ``history_output.txt``. Ignored for ``general_output`` mode.
+        zfile : str, default 'history_output'
+            Which Zacros output to read: either ``'history_output'`` or ``'general_output'``.
         verbose : bool, default False
-            If True, print detailed loading information.
+            If True, print detailed loading and caching information.
+
+        Notes
+        -----
+        - The method sets ``self.initial_state`` when an initial configuration can be parsed from
+          ``general_output.txt``.
+        - For ``history_output`` mode the per-snapshot loading uses :meth:`State.load` semantics.
+                - ``general_output`` mode populates ``times``, ``energies``, and
+                    ``state_deltas`` but does not populate ``states``.
         """
 
 
@@ -375,7 +381,7 @@ class Trajectory:
 
     def get_rdf(self, species_1, species_2, distances, r_max=None, dr=0.1, fraction=1.0, g_ref=None):
         """
-        Calculate radial distribution function averaged over trajectory.
+        Calculate the RDF averaged over a selected fraction of snapshots.
         
         Parameters
         ----------
@@ -402,9 +408,8 @@ class Trajectory:
             
         Notes
         -----
-        RDF is averaged over fraction of states.
-        Normalization follows zacros_functions.py: divides counts by g_ref 
-        (number of neighbors in each shell) and by coverage.
+        ``fraction`` selects the final part of the trajectory. For example,
+        ``fraction=0.5`` averages over the last half of the loaded states.
         """
 
         if r_max is None:
@@ -487,7 +492,7 @@ class Trajectory:
         
     def get_accessibility_histogram(self, fraction=1.0):
         """
-        Calculate histogram of site accessibility (number of vacant nearest neighbors).
+        Calculate accessibility histograms over a selected fraction of states.
 
         Parameters
         ----------
@@ -496,10 +501,10 @@ class Trajectory:
         
         Returns
         -------
-        accessibility : ndarray
-            Number of vacant nearest neighbors (0 to max_coordination)
-        frequencies : ndarray
-            Fraction of occupied sites with each accessibility
+        frequencies_13 : ndarray
+            Histogram for vacant first-plus-third-shell neighbors.
+        frequencies_2 : ndarray
+            Histogram for vacant second-shell neighbors.
             
         Notes
         -----
@@ -559,7 +564,6 @@ class Trajectory:
         coverages : 2D-array (nstates, n_surf_species+1)
             Partial coverages at each time point
         """
-        
         coverages = np.array([s.get_coverages(atoms_per_uc=atoms_per_uc) for s in self.states])
 
         return self.times, coverages
@@ -664,9 +668,8 @@ class Trajectory:
     def __len__(self):
         """
         Number of configurations in trajectory.
-        
-        Returns number of states if loaded, otherwise number of time points.
-        This allows len() to work correctly for energy_only trajectories.
+
+        Returns the number of loaded state snapshots stored in ``self.states``.
         """
         return len(self.states)
         

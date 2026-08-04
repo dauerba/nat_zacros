@@ -23,52 +23,34 @@ from .lattice import Lattice
 
 class SimulationSet:
     """
-    Summary
-    -------
-    Manages a Zacros simulation set.
-    
-    This class provides a high-level interface for:
-    - Metadata extraction from jobs.log
-    - Loading and caching of multiple simulations in the set
-    - Ensemble-averaged property calculations (energy vs time, RDFs, accessibilities)
-    - Equilibration fraction estimation via fitting energy vs time to an exponential decay model
-    - Cache management for trajectories and results across the set
-    
+    Manage a set of Zacros simulations that share one metadata log file.
+
+    The class parses simulation metadata from ``jobs.log``, creates one
+    :class:`Simulation` object per simulation directory, and provides a
+    set-level interface for loading data, clearing caches, computing
+    ensemble properties, and plotting per-simulation results.
+
     Attributes
     ----------
-    data_path  : Path or str
-        Directory containing the log_file, simset_dir, and results_dir
-    en_file_sfx : str
-        Suffix for energy data files (default: 'energy.dat').
-        If None, energy data files are not created.
-    fractions_eq : dict
-        Dictionary mapping simulation keys to equilibrium fractions.
-    log_file : str  
-        name of the log file (default: 'jobs.log')
-    metadata : list of dictionaries
-        Simulation metadata (temperature, coverage, energy terms, etc.)
-    results_dir : str
-        subdirectory containing simulation results (default: 'results')
+    data_path : pathlib.Path
+        Root directory containing the log file, simulation directories, and
+        results directory.
+    log_file : str
+        Name of the metadata log file.
     simset_dir : str
-        subdirectory containing a simulation set (default: 'jobs')
-    simulations : dict
-        Dictionary of loaded Simulation objects {simulation_number: Simulation}.
-    use_cache : bool
-        Whether caching is used when loading simulations.
+        Name of the subdirectory containing simulation folders.
+    results_dir : str
+        Name of the subdirectory used for cached property outputs.
+    traj_dir_pfx : str
+        Prefix used to detect trajectory directories inside each simulation.
+    simulations : dict[str, Simulation]
+        Simulation objects keyed by the simulation identifier read from the
+        log file.
+    fractions_eq : dict[str, float or None]
+        Equilibrium fractions keyed by simulation identifier. Values remain
+        ``None`` until estimated or assigned.
     verbose : bool
-        Whether to print verbose output during loading.
-    
-    Methods
-    -------
-    check_cache_status(simulations=None)
-    clear_results(target='all', simulations=None, verbose=False)
-    clear_traj_cache(simulations=None, verbose=False)
-    find_equilibrium_fraction_fit(energies_vs_time, threshold=0.01, min_equilibrium_points=10, a0_fixed=True, a0_guess_points=10)
-    get(property_key, pars_dict=None, simulations=None, use_fraction=False, save=True, verbose=False)
-    load(cache=None, workers=mp.cpu_count(), simulations=None, verbose=False)
-    plot_accessibilities(accessibilities, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16)
-    plot_energy(energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True)
-    plot_rdf(rdfs, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16)
+        Default verbosity flag stored on the instance.
 
     Examples
     --------
@@ -82,14 +64,14 @@ class SimulationSet:
     >>> accs = simset.get('accessibility')
     >>>
     >>> # Plotting
-    >>> simset.plot_energy(energies)
+    >>> simset.plot_energies(energies)
     >>> simset.plot_rdf(rdfs)
     >>> simset.plot_accessibilities(accs)
 
     Notes
     -----
-    The `get()` method is the central entry point for all ensemble analysis.
-    Supported property keys and their default parameters:
+    The :meth:`get` method is the main entry point for set-level analysis.
+    Supported property keys and their default parameters are:
     - 'accessibility': {'fraction': 1.0}
     - 'cluster': {'cutoff': <3rd NN distance>, 'eps': 1e-4, 'fraction': 1.0, 'method': 'ckdtree'}
     - 'coverage': {'n_bins': 100, 'atoms_per_uc': 1}
@@ -172,13 +154,22 @@ class SimulationSet:
 
     def _arg_to_list(self, arg):
         """
-        Helper method converts an argument to a list of simulation keys.
+        Convert a simulation selector to a list of internal simulation keys.
+
+        ``None`` and ``'all'`` select all simulations. Scalar selectors are
+        wrapped into a list. All explicit selectors are normalized to strings
+        because simulation identifiers are stored as string keys.
         """
 
-        if arg is None:
+        if arg is None or arg == 'all':
             arg = list(self.simulations.keys())
         elif not isinstance(arg, list):
             arg = [arg]
+        else:
+            arg = list(arg)
+
+        if arg is not None:
+            arg = [str(key) for key in arg]
 
         return arg
 
@@ -186,11 +177,11 @@ class SimulationSet:
     def get(self, property_key, pars_dict=None, simulations=None, use_fraction=False, save=True,
             autoload=False, cache=True, verbose=False):
         """
-        Compute an ensemble-averaged property with caching support.
+        Compute one cached ensemble property for one or more simulations.
 
-        This method retrieves the specified property for specified simulations in the set,
-        either by loading from a cache file or by performing the calculation if
-        the cache is missing or invalid.
+        For each selected simulation, this method optionally loads the
+        simulation, applies the requested parameter set, and dispatches to the
+        corresponding :class:`Simulation` ensemble method.
 
         Parameters
         ----------
@@ -198,8 +189,10 @@ class SimulationSet:
             Key for the property to compute (e.g., 'energy', 'rdf', 'accessibility').
         pars_dict : dict, optional
             Dictionary of parameters to pass to the property computation method (default is None).
-        simulations : Any, list[Any], or None
-            Simulation numbers to clear; None => all simulations in set.
+        simulations : str, int, list[str | int], or None
+            Simulation identifiers to evaluate. ``None`` selects all
+            simulations in the set. Integer selectors are converted to the
+            string keys used internally.
         use_fraction : bool, optional
             Whether to use the equilibration fraction for the computation (default is False).
         save : bool, optional
@@ -213,9 +206,10 @@ class SimulationSet:
 
         Returns
         -------
-        list
-            A list containing the computed property data for each simulation.
-            Entries may be None if the computation was skipped.
+        dict
+            Mapping from simulation identifier to the computed property result.
+            Simulations that are invalid, unloaded with ``autoload=False``, or
+            skipped because of an invalid equilibrium fraction are omitted.
 
         Raises
         ------
@@ -330,8 +324,10 @@ class SimulationSet:
 
         Parameters
         ----------
-        simulations : Any, list[Any], or None
-            Simulation numbers to clear; None => all simulations in set.
+        simulations : str, int, list[str | int], or None
+            Simulation identifiers to clear. ``None`` selects all simulations
+            in the set. Integer selectors are converted to internal string
+            keys.
         verbose : bool
             Print each deleted file when True.
         """
@@ -351,23 +347,21 @@ class SimulationSet:
 
     def clear_results(self, target='all', simulations=None, verbose=False):
         """
-        Delete ensemble-averaged result files (e.g., energy.dat, rdf.dat) from the results directory.
-        
-        This manages files on disk without needing to load simulations into RAM first.
+        Delete cached property files from the per-simulation results folders.
+
+        This method only removes files on disk. It does not unload simulations
+        or recompute any properties.
 
         Parameters
         ----------
         target : str or list, default 'all'
-            Which result types to remove. Supported: 'energy', 'rdf', 'accessibility', 'gref', 'all'.
-        simulations : int, list[int], 'all', or None
-            Specification of simulations to clear; None or 'all' => check all in set.
+            Which property outputs to remove. ``'all'`` expands to all keys in
+            ``self._properties``.
+        simulations : str, int, list[str | int], 'all', or None
+            Simulation identifiers to clear. ``None`` or ``'all'``
+            selects all simulations in the set.
         verbose : bool
             Whether to print detailed information about each deleted file.
-            
-        Returns
-        -------
-        int
-            Total number of files deleted.
         """
 
         # Normalize target
@@ -403,12 +397,17 @@ class SimulationSet:
 
     def check_cache_status(self, simulations=None):
         """
-        Check existence of result and cache files for specified simulations.
+        Print a simple cache status table for selected simulations.
+
+        The report includes whether the simulation object is present in the
+        set, how many trajectory pickle caches are present, and which cached
+        result files were detected.
         
         Parameters
         ----------
-        simulations : int, list[int], 'all', or None
-            Specification of simulations to check; None or 'all' => check all in set.
+        simulations : str, int, list[str | int], 'all', or None
+            Simulation identifiers to check. ``None`` or ``'all'``
+            selects all simulations in the set.
         """
         sim_nums = self._get_simulation_numbers(simulations)
         
@@ -565,7 +564,7 @@ class SimulationSet:
 
     def load(self, cache=True, zfile='history_output', workers=mp.cpu_count(), simulations=None, verbose=False):
         """
-        Load data for simulations in the set.
+        Load trajectory data for selected simulations in the set.
         
         Parameters
         ----------
@@ -574,13 +573,14 @@ class SimulationSet:
             if False, load from raw simulation data.
         zfile: str, default 'history_output'
             selects zacros output file from which to read states
-        simulations : Any, list[Any] or None
-            Specification of simulations to load; None => load all in set.
+        simulations : str, int, list[str | int], 'all', or None
+            Simulation identifiers to load. ``None`` or ``'all'``
+            selects all simulations in the set.
         verbose : bool, default False
             If True, print detailed loading information.
         workers : int, default mp.cpu_count()
-            Number of worker processes to use for parallel loading.
-            If None, load serially.
+            Reserved for future parallel loading support. The current
+            implementation forwards sequentially to each :class:`Simulation`.
         """
 
         # Load simulations selected
@@ -597,8 +597,9 @@ class SimulationSet:
         
         Parameters
         ----------
-        simulations : Any, list[Any] or None
-            Specification of simulations to unload; None => unload all in set.
+        simulations : str, int, list[str | int], 'all', or None
+            Simulation identifiers to unload. ``None`` or ``'all'``
+            selects all simulations in the set.
         verbose : bool, default False
             If True, print detailed unloading information.
         """
@@ -1191,7 +1192,7 @@ class SimulationSet:
 
     @property
     def loaded_ids(self):
-        """Return list of simulation numbers currently loaded in memory."""
+        """Return list of simulation identifiers currently loaded in memory."""
         return sorted([key for key in self.simulations.keys() if self.simulations[key].is_loaded])
 
 

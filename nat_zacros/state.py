@@ -22,8 +22,9 @@ class State:
     ----------
     lattice : Lattice object
         Reference to the underlying surface lattice
-    folder : str (must be str for pickle cross-platform compatibility) or None
-        Directory containing history_output.txt. Stored as string (not Path)
+    dir : str or None
+        Directory containing the source trajectory files. Stored as a string for
+        simple serialization.
     n_gas_species : int
         Number of gas-phase species
     gas_species_names : list of str
@@ -35,9 +36,11 @@ class State:
     surf_species_dent : list
         Denticity of each surface species
     ads_ids : ndarray, shape (N,)
-        Species ID at each lattice site (0 = empty)
+        Adsorbate identifier at each site. Sites belonging to the same
+        multidentate adsorbate share the same positive ID; 0 means empty.
     occupation : ndarray, shape (N,)
-        Occupation status of each site (0 = empty, >0 = occupied)
+        Surface-species code at each site (0 = empty, 1..n = entries in
+        ``surf_species_names`` plus one)
     dentation : ndarray, shape (N,)
         Denticity at each site
         
@@ -117,7 +120,7 @@ class State:
 
     def create_from_deltas(self, deltas):
         """
-        Create a new state from a list of deltas.
+        Create a new state by applying reaction deltas to the current state.
         
         Parameters
         ----------
@@ -127,8 +130,11 @@ class State:
             
         Returns
         -------
-        new_state : State
-            A new State object representing the configuration after applying the deltas.
+        State or None
+            New state after applying the supplied deltas, or ``None`` if one of
+            the reaction names is not recognized so no changes are defined.
+
+        
         """
 
         # Initialize a new state object with the same lattice and metadata
@@ -189,7 +195,7 @@ class State:
 
     def load(self, idx=0, verbose=False):
         """
-        Read configuration from history_output.txt file.
+        Read one configuration block from ``history_output.txt``.
         
         Parameters
         ----------
@@ -201,9 +207,8 @@ class State:
             
         Notes
         -----
-        Reads from history_output.txt which contains sequential snapshots.
-        Each snapshot lists the occupation, species ID, and denticity for
-        every lattice site.
+        Each configuration block supplies the adsorbate ID, surface-species
+        code, and denticity for every lattice site.
         """
 
         if verbose:
@@ -229,12 +234,15 @@ class State:
 
     def get_accessibility(self):
         """
-        Calculate accessibility (number of vacant nearest neighbors) for each occupied site.
+        Calculate shell-resolved accessibilities for each occupied site.
         
         Returns
         -------
-        accessibility : ndarray
-            Number of vacant nearest neighbors (0 to max_coordination)
+        acc13_list : list[int]
+            Number of vacant first-plus-third-shell neighbors for each occupied
+            site.
+        acc2_list : list[int]
+            Number of vacant second-shell neighbors for each occupied site.
             
         Notes
         -----
@@ -278,8 +286,8 @@ class State:
         
         Parameters
         ----------
-        species : str or int
-            Name or index of the surface species
+        species : str
+            Name of the surface species.
             
         Returns
         -------
@@ -678,14 +686,15 @@ class State:
 
     def n_ads(self):
         """
-        Get total number of adsorbates on the surface.
+        Get the number of distinct adsorbates on the surface.
         
         Returns
         -------
         int
-            Number of occupied sites
+            Number of unique positive adsorbate IDs present in the current
+            state.
         """
-        return np.count_nonzero(self.occupation)
+        return len(np.unique(self.ads_ids[self.ads_ids > 0]))
 
     def plot(self, ax=None, scaling=1, ads_scaling=1.2, markers=None, colors=None, legend=True,
                     show_axis = True):

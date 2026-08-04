@@ -7,73 +7,54 @@ collections of trajectories from a single Zacros simulation.
 
 import numpy as np
 import warnings
-import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
 
 class Simulation:
     """
-    Summary
-    -------
-    Manages a Zacros simulation with multiple trajectories.
-    
-    This class provides a high-level interface for:
-    - Loading multiple trajectories
-    - Automatic caching of parsed trajectories
-    - Ensemble-averaged analysis (RDF, energy statistics)
-    - Metadata extraction from jobs.log
-    
+    Represent one Zacros simulation containing one or more trajectories.
+
+    A :class:`Simulation` owns the trajectory directories for one simulation
+    point, shares one :class:`Lattice` across all trajectories, and provides
+    ensemble calculations such as RDFs, accessibility statistics, coverages,
+    LEED intensities, and binned energies.
+
     Attributes
     ----------
-    is_valid : bool
-        True if something wrong with simulation data (corrupted, missing etc.)
-    lattice : Lattice
-        Shared lattice object for all trajectories
+    dir : pathlib.Path
+        Directory containing the trajectory folders.
+    results_dir : pathlib.Path
+        Directory used for cached property files.
     metadata : dict
-        Simulation metadata (temperature, coverage, energy_terms, etc.)
-    results_dir : Path
-        Directory for storing cache and results files
-    dir : Path
-        Directory containing trajectory folders (traj_1, traj_2, ...)
-    trajectories : list of Trajectory
-        Loaded trajectory objects
-    traj_dirs : list of Path
-        Paths to individual trajectory directories
-    
-    Methods
-    -------
-    TO DO: write this section
+        Metadata required to interpret trajectory contents.
+    lattice : Lattice
+        Shared lattice object used by all trajectories in the simulation.
+    traj_dir_pfx : str
+        Prefix used to detect trajectory directories.
+    traj_dirs : list[pathlib.Path]
+        Trajectory directories found under ``dir``.
+    trajectories : dict[str, Trajectory]
+        Trajectory objects keyed by trajectory directory name.
+    is_valid : bool
+        ``True`` when the simulation directory and required metadata were
+        parsed successfully.
+    is_loaded : bool
+        ``True`` after trajectory data have been loaded into memory.
 
     Examples
     --------
-    >>> # Typical workflow
-    >>> run = Simulation('fn_3leed/jobs/1')
+    >>> run = Simulation('fn_3leed/jobs/1', metadata=metadata)
     >>> run.load()  # Uses cache if available
     >>> run.is_valid  # Check if run data is valid
-    >>> r, g, g_std = run.get_ensemble_rdf(r_max=40.0, dr=0.1)
+    >>> r, g, g_ref = run.get_ensemble_rdf(pars_dict={'r_max': 40.0, 'dr': 0.1})
     >>> times, energies, energies_std = run.get_ensemble_energy_vs_time()
-
-    Cache / results helpers (per-simulation)
-    ----------------------------------------
-    These helpers operate at either a path (static) level or an instance level.
-
-    # Path-level helpers (no Simulation instance required)
-    >>> Simulation.clear_traj_cache('fn_3leed/jobs/1', traj_dir_pfx='traj')
-    >>> Simulation.clear_results_path('fn_3leed/jobs/1', target=['energy', 'gref'])
-
-    # Instance-level helpers (convenience wrappers)
-    >>> sim = Simulation('fn_3leed/jobs/1', metadata={
-    ...     'lattice_dimensions':[4,4], 'n_adsorbates':2, 'temperature':300, 'energy_terms':['label','E1']
-    ... })
-    >>> sim.clear_traj_cache()
-    >>> sim.clear_results(target='all')
 
     Notes
     -----
-    - `SimulationSet` delegates cache/result removal to these `Simulation` helpers so
-      filesystem logic is centralized and `Simulation` can be used standalone.
+    :class:`SimulationSet` delegates set-level work to this class, but
+    :class:`Simulation` can also be used directly for a single simulation
+    directory.
     """
 
 
@@ -151,107 +132,9 @@ class Simulation:
                     print(f"Cannot load lattice data for simulation {self.dir.name}")
                     self.is_valid = False
                 else:
-                    # Initialize trajectory list
+                    # Keep trajectories keyed by directory name for stable lookup.
                     for tdir in self.traj_dirs:
                         self.trajectories[tdir.name] = Trajectory(tdir, self.lattice, self.metadata)
-        
-
-#
-# Commented are the functions for parallelizing the loading
-# We consider to throw them away
-#
-    # def _load_single_trajectory(self, traj_dir, cache=True, verbose=False):
-    #     """
-    #     Helper function for parallel trajectory loading.
-    #     Parameters
-    #     ----------
-    #     traj_dir : Path
-    #         Directory containing trajectory data
-    #     cache : bool, default True
-    #         If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
-    #         If False, load from raw simulation data.
-    #     verbose : bool, optional
-    #         If True, print verbose output.
-    #     Returns
-    #     -------
-    #     trajectory
-    #         Trajectory object
-    #     """
-
-    #     traj = Trajectory(traj_dir, self.lattice, self.metadata)
-    #     traj.load(cache=cache, verbose=verbose)
-    #     return traj
-
-    # def _load_trajectories_parallel(self, cache=True, workers=None, verbose=False):
-    #     """
-    #     Load multiple trajectories in parallel.
-    #     Parameters
-    #     ----------
-    #     cache : bool, default True
-    #         If True, attempt to load cached trajectory data if available; cache trajectory data if not already cached.
-    #         If False, load from raw simulation data.
-    #     workers : int, optional
-    #         Number of parallel workers. If None, uses all available cores.
-    #     verbose : bool, optional
-    #         If True, print verbose output.
-    #         Target data to load (default: 'trajs')
-    #     workers : int, optional
-    #         Number of parallel workers. If None, uses all available cores.
-    #     verbose : bool, optional
-    #         If True, print verbose output.
-            
-    #     Returns
-    #     -------
-    #     list of trajectories
-    #         Loaded trajectories
-    #     """
-
-    #     if len(self.traj_dirs) == 0:
-    #         return []
-    #     if workers is None:
-    #         workers = mp.cpu_count()
-
-    #     with ProcessPoolExecutor(max_workers=workers) as executor:
-    #         trajs = list(executor.map(self._load_single_trajectory, self.traj_dirs, 
-    #                                   [cache]*len(self.traj_dirs), [verbose]*len(self.traj_dirs)))
-
-    #     return trajs
-
-    # def load_mp(self, cache=True, workers=mp.cpu_count(), verbose=False):
-    #     """
-    #     Load trajectory data with caching support.
-
-    #     Parameters
-    #     ----------
-    #     cache : bool, default True
-    #         If True, load cached trajectory data if available; cache trajectory data if not already cached.
-    #         If False, load from raw simulation data.
-    #     workers : int or None, default mp.cpu_count()
-    #         Number of parallel workers to use for loading.
-    #         If None, load sequentially.
-    #     verbose : bool, default False
-    #         If True, print detailed loading information.
-    #     """
-
-    #     # Determine cache file path and extension
-    #     print(f"Loading simulation {self.dir.name} with caching {'enabled' if cache else 'disabled'}...")
-
-    #     # Load trajectories from files
-    #     if verbose:
-    #         print(f"Loading {len(self.traj_dirs)} trajectories...")
-    #         print(f"  Loading mode: {'sequential' if workers is None else 'parallel with ' + str(workers) + ' workers'}")
-
-    #     if workers is not None:
-    #         # Use parallel loading
-    #         self.trajectories = self._load_trajectories_parallel(cache=cache, workers=workers, verbose=verbose)
-    #     else:
-    #         # Sequential loading
-    #         self.trajectories = []
-    #         for traj_dir in self.traj_dirs:
-    #             self.trajectories.append(self._load_single_trajectory(traj_dir, cache=cache, verbose=verbose))
-    #     if verbose:
-    #         print(f"Loaded {len(self.trajectories)} trajectories")
-    #         print(f"  Total states: {sum(len(t.states) for t in self.trajectories)}")
 
     def _parse_results_header(self, file_path, verbose=False):
         """
@@ -308,15 +191,17 @@ class Simulation:
 
     def load(self, cache=True, zfile='history_output', verbose=False):
         """
-        Load trajectory data with caching support.
+        Load all trajectories in this simulation.
 
         Parameters
         ----------
         cache : bool, default True
-            If True, load cached trajectory data if available; cache trajectory data if not already cached.
-            If False, load from raw simulation data.
+            If True, use each trajectory pickle cache when available and write
+            caches while reading ``history_output`` data.
         zfile: str, default 'history_output'
-            selects zacros output file from which to read states
+            Selects which Zacros output to read in each trajectory.
+            Supported values are ``'history_output'`` and
+            ``'general_output'``.
         verbose : bool, default False
             If True, print detailed loading information.
         """
@@ -342,12 +227,12 @@ class Simulation:
 
     def unload(self, verbose=False):
         """
-        Unload trajectory data.
+        Unload all trajectory data from memory.
 
         Parameters
         ----------
         verbose : bool, default False
-            If True, print detailed loading information.
+            If True, print detailed unloading information.
         """
 
         # Unload trajectories from files
@@ -383,14 +268,19 @@ class Simulation:
         return deleted_count
     
     def clear_results(self, fnames, verbose=False):
-        """Clear cached results file.
+        """Delete one or more cached results files for this simulation.
 
         Parameters
         ----------
-        fnames : str or Path or list of them
-            Path to the results file to clear.
+        fnames : iterable of path-like or path-like
+            Result files to delete.
         verbose : bool, default False
             If True, print detailed information about cleared results.
+
+        Returns
+        -------
+        int
+            Number of files deleted.
         """
 
         # Normalize fnames
@@ -457,9 +347,11 @@ class Simulation:
 
     def get_ensemble_rdf(self, pars_dict=None, file=None, verbose=False):
         """
-        Compute ensemble-averaged radial distribution function.
-        
-        Automatically handles g_ref caching and computation.
+        Compute the trajectory-averaged RDF for this simulation.
+
+        The method evaluates :meth:`Trajectory.get_rdf` for every loaded
+        trajectory, averages the resulting curves, and optionally writes the
+        average to a results file.
         
         Parameters
         ----------
@@ -486,10 +378,9 @@ class Simulation:
             Bin centers (Angstroms)
         g_avg : ndarray
             Ensemble-averaged RDF
-        g_std : ndarray
-            Standard deviation of RDF across trajectories
         g_ref : ndarray, optional
-            Reference RDF (only returned if normalize=True)
+            Reference neighbor histogram used for normalization. Returned only
+            when ``normalize=True``.
         
         Raises
         ------
@@ -564,10 +455,10 @@ class Simulation:
 
     def get_ensemble_accessibility(self, pars_dict=None, file=None, verbose=False):
         """
-        Compute ensemble-averaged site accessibility histogram.
-        
-        Accessibility measures how many nearest neighbor sites are vacant for occupied sites,
-        which affects reactivity and diffusion rates.
+        Compute trajectory-averaged accessibility histograms.
+
+        Accessibility is reported separately for the combined first and third
+        shells and for the second shell.
         
         Parameters
         ----------
@@ -581,12 +472,16 @@ class Simulation:
             
         Returns
         -------
-        accessibility : ndarray
-            Number of vacant nearest neighbors (0 to max_coordination)
-        frequency_avg : ndarray
-            Ensemble-averaged frequency distribution
-        frequency_std : ndarray
-            Standard deviation of frequency distribution across trajectories
+        frequency_13_avg : ndarray
+            Mean histogram for vacant first-plus-third-shell neighbors.
+        frequency_13_std : ndarray
+            Standard deviation of the first-plus-third-shell histogram across
+            trajectories.
+        frequency_2_avg : ndarray
+            Mean histogram for vacant second-shell neighbors.
+        frequency_2_std : ndarray
+            Standard deviation of the second-shell histogram across
+            trajectories.
         
         Raises
         ------
