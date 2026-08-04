@@ -343,8 +343,10 @@ class Trajectory:
             If True, print detailed loading information.
         """
 
-        n_states = len(self.states)
+        n_states = len(self.times)
         self.states = []
+        self.initial_state = None
+        self.state_deltas = []
         self.times = np.array([])
         self.energies = np.array([])
         if verbose:
@@ -671,7 +673,7 @@ class Trajectory:
 
         Returns the number of loaded state snapshots stored in ``self.states``.
         """
-        return len(self.states)
+        return len(self.states) if self.initial_state is None else len(self.state_deltas) + 1
         
     def __getitem__(self, idx):
         """
@@ -692,8 +694,34 @@ class Trajectory:
         >>> traj[-1]         # Last state  
         >>> traj[10:20:2]    # Every other state from 10 to 20
         """
-        return self.states[idx]
-        
+
+        if self.initial_state is None:
+            return self.states[idx]
+
+        else:
+            if isinstance(idx, int):
+
+                if idx == 0:
+                    return self.initial_state
+                
+                else:
+                    return self.initial_state.create_from_deltas(self.state_deltas[:idx])
+
+            elif isinstance(idx, slice):
+                start = idx.start or 0          
+                stop = idx.stop or len(self)
+                step = idx.step or 1
+
+                states = [ self.initial_state.create_from_deltas(self.state_deltas[:start]) ]
+
+                for i in range(start, stop-step, step):
+                        states.append( states[-1].create_from_deltas(self.state_deltas[i:i+step]) )
+
+                return states
+
+            else:
+                raise TypeError("Invalid index type. Must be int or slice.")
+
     def __repr__(self):
         """String representation of Trajectory"""
         if len(self) > 0:

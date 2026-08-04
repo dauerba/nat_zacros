@@ -124,7 +124,7 @@ class State:
         
         Parameters
         ----------
-        deltas : list of tuples
+        deltas : a tuple or a list of tuples
             Each tuple contains (reaction_name, sites_inv) representing
             the reaction and the involved sites that change the state.
             
@@ -146,6 +146,8 @@ class State:
         new_state.dentation = np.copy(self.dentation)
 
         # Apply each delta to update the state
+        if isinstance(deltas, tuple):
+            deltas = [deltas]
         for reaction_name, sites_inv in deltas:
 
             if 'hopping' in reaction_name:
