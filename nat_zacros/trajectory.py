@@ -343,7 +343,7 @@ class Trajectory:
             If True, print detailed loading information.
         """
 
-        n_states = len(self.times)
+        n_states = len(self)
         self.states = []
         self.initial_state = None
         self.state_deltas = []
@@ -424,8 +424,8 @@ class Trajectory:
             r_max = min(l1, l2, l3) / 2.0
             
         # Determine which states to include based on fraction
-        eq_idx = int((1.0 - fraction) * len(self.states))
-        states_to_use = self.states[eq_idx:]
+        eq_idx = int((1.0 - fraction) * len(self))
+        states_to_use = self[eq_idx:]
         
         # Accumulate over all states in states_to_use
         r_bins, g_r_avg = states_to_use[0].get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, g_ref=g_ref)
@@ -476,8 +476,8 @@ class Trajectory:
         cluster_size_freqs = np.zeros(len(self.lattice))
         
         # Determine number of snapshots to use based on fraction
-        n_states = len(self.states)
-        use_states = self.states[int(n_states * (1.0 - fraction)):]
+        n_states = len(self)
+        use_states = self[int(n_states * (1.0 - fraction)):]
 
         n_clusters = 0
         for st in use_states:
@@ -517,8 +517,8 @@ class Trajectory:
         accessibilities_2  = []
         
         # Determine number of snapshots to use based on fraction
-        n_states = len(self.states)
-        use_states = self.states[int(n_states * (1.0 - fraction)):]
+        n_states = len(self)
+        use_states = self[int(n_states * (1.0 - fraction)):]
         # Maximum site coordination number
         max_coord = np.max(self.lattice.site_coordinations)
 
@@ -549,8 +549,8 @@ class Trajectory:
 
         intensities = np.zeros(len(self))
 
-        for i, st in enumerate(self.states):
-            intensities[i] = st.get_leed_intensity(distances, r)
+        for i in range(len(self)):
+            intensities[i] = self[i].get_leed_intensity(distances, r)
 
         return self.times, intensities
         
@@ -566,7 +566,7 @@ class Trajectory:
         coverages : 2D-array (nstates, n_surf_species+1)
             Partial coverages at each time point
         """
-        coverages = np.array([s.get_coverages(atoms_per_uc=atoms_per_uc) for s in self.states])
+        coverages = np.array([self[i].get_coverages(atoms_per_uc=atoms_per_uc) for i in range(len(self))])
 
         return self.times, coverages
 
@@ -575,10 +575,22 @@ class Trajectory:
         Get the path of an adsorbate idx
         """
 
-        ads_path = np.empty(len(self), dtype=int)
+        n_states = len(self)
 
-        for i,st in enumerate(self.states):
-            ads_path[i] = st.get_ads_site(idx)
+        def ads_site_iter():
+            if self.initial_state is None:
+                for st in self.states:
+                    yield st.get_ads_site(idx)
+            else:
+                st = self.initial_state
+                yield st.get_ads_site(idx)
+                for delta in self.state_deltas:
+                    st = st.create_from_deltas(delta)
+                    if st is None:
+                        raise RuntimeError('Failed to reconstruct state from deltas.')
+                    yield st.get_ads_site(idx)
+
+        ads_path = np.fromiter(ads_site_iter(), dtype=int, count=n_states)
 
         if trim_zeros:
             return np.trim_zeros(ads_path, 'b')
@@ -655,11 +667,11 @@ class Trajectory:
 
         def update(frame):
             ax.cla()
-            self.states[frame].plot(ax=ax, scaling=scaling, ads_scaling=ads_scaling, 
-                                    markers=markers, colors=colors, legend=legend, show_axis=show_axis)
+            self[frame].plot(ax=ax, scaling=scaling, ads_scaling=ads_scaling,
+                    markers=markers, colors=colors, legend=legend, show_axis=show_axis)
 
-            str = rf'$t_{{{frame}}} = $ {to_superscript_scientific(self.times[frame], precision=precision)} s'
-            ax.text(0.03, 0.9, str, transform=ax.transAxes, ha='left', fontsize=10)
+            label = rf'$t_{{{frame}}} = $ {to_superscript_scientific(self.times[frame], precision=precision)} s'
+            ax.text(0.03, 0.9, label, transform=ax.transAxes, ha='left', fontsize=10)
 
             return ax
 
