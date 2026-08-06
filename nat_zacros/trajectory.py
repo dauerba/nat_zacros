@@ -566,9 +566,22 @@ class Trajectory:
         coverages : 2D-array (nstates, n_surf_species+1)
             Partial coverages at each time point
         """
-        coverages = np.array([self[i].get_coverages(atoms_per_uc=atoms_per_uc) for i in range(len(self))])
+        #coverages = np.array([self[i].get_coverages(atoms_per_uc=atoms_per_uc) for i in range(len(self))])
 
-        return self.times, coverages
+        def cov_iter():
+            if self.initial_state is None:
+                for st in self.states:
+                    yield st.get_coverages(atoms_per_uc=atoms_per_uc)
+            else:
+                st = self.initial_state
+                yield st.get_coverages(atoms_per_uc=atoms_per_uc)
+                for delta in self.state_deltas:
+                    st = st.create_from_deltas(delta)
+                    if st is None:
+                        raise RuntimeError('Failed to reconstruct state from deltas.')
+                    yield st.get_coverages(atoms_per_uc=atoms_per_uc)
+
+        return self.times, np.vstack(list(cov_iter()))
 
     def get_ads_path(self, idx, trim_zeros=False):
         """
