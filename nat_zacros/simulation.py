@@ -607,48 +607,62 @@ class Simulation:
         start_time = max([traj.times[0] for traj in self.trajectories.values()])
         
         # Create time bins for discretization
-        time_bins = np.linspace(start_time, end_time, n_bins + 1)
-        time_centers = 0.5 * (time_bins[:-1] + time_bins[1:])
+        time_edges = np.linspace(start_time, end_time, n_bins + 1)
+        time_centers = 0.5 * (time_edges[:-1] + time_edges[1:])
         
         # STAGE 1: Intra-trajectory averaging
         # For each trajectory, bin its energy measurements and average within bins
-        energy_hists = []
-        for traj in self.trajectories.values():
+        hists = np.empty((len(self), n_bins))
+        for itraj, traj in enumerate(self.trajectories.values()):
             times, energies = traj.get_energy_vs_time()
             
             # Initialize binned energy and sample counts for this trajectory
-            energy_hist = np.zeros(n_bins)
-            counts = np.zeros(n_bins)
-            
-            # Accumulate energy measurements into bins
-            for t, energy in zip(times, energies):
-                if start_time <= t <= end_time:
-                    bin_idx = np.digitize(t, time_bins, right=False) - 1
-                    if 0 <= bin_idx < n_bins:
-                        energy_hist[bin_idx] += energy
-                        counts[bin_idx] += 1  # Track number of samples per bin
-            
+            # extended with bins before start_time (0) and after end_time (n_bins + 1)
+            hist = np.zeros(n_bins + 2)
+            counts = np.zeros(n_bins + 2)
+
+            # get arrays of bin indices and their differences
+            bin_idxs = np.digitize(times, time_edges, right=False)
+            idx_diffs = np.diff(bin_idxs)
+
+            # Put the initial energy value into the histogram
+            hist[bin_idxs[0]] += energies[0]
+            counts[bin_idxs[0]] += 1
+
+            # Looping over the rest of trajectory
+            for i in range(1, len(bin_idxs)):
+
+                # put energy value into its bin
+                hist[bin_idxs[i]] += energies[i]
+                counts[bin_idxs[i]] += 1  # Track number of samples per bin
+
+                # put the previous energy value into bins jumped over
+                if idx_diffs[i-1] > 1:
+                    hist[bin_idxs[i-1] + 1 : bin_idxs[i] ] += energies[i-1]*np.ones(idx_diffs[i-1] - 1)
+                    counts[bin_idxs[i-1] + 1 : bin_idxs[i] ] += np.ones(idx_diffs[i-1] - 1, dtype=int)
+
             # Average within each bin (multiple measurements → single value per bin)
             # This gives us one representative energy value per time bin for THIS trajectory
-            with np.errstate(divide='ignore', invalid='ignore'):
-                energy_hist = np.where(counts > 0, energy_hist / counts, np.nan)
+            # with np.errstate(divide='ignore', invalid='ignore'):
+            #     hist = np.where(counts > 0, hist / counts, np.nan)
             
-            energy_hists.append(energy_hist)
+            hists[itraj,:] = hist[1:-1] / counts[1:-1]
         
         # STAGE 2: Inter-trajectory (ensemble) averaging
         # Each trajectory now contributes exactly one value per time bin
         # Average across trajectories with equal weighting
-        energy_avg = np.nanmean(energy_hists, axis=0)
-        energy_std = np.nanstd(energy_hists, axis=0)  # Trajectory-to-trajectory variation
+        # Get rid of historgram bins outside of time range
+        avgs = np.mean(hists, axis=0)
+        stds =  np.std(hists, axis=0)  # Trajectory-to-trajectory variation
 
         # Save energy vs time data to file
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             np.savetxt(file, 
-                np.column_stack((time_centers, energy_avg, energy_std)), 
+                np.column_stack((time_centers, avgs, stds)), 
                 header=f'Parameters: n_bins={n_bins}\nTime_s Energy_eV Energy_std_eV')
 
-        return time_centers, energy_avg, energy_std
+        return time_centers, avgs, stds
     
 
     def get_ensemble_leed_intensity_vs_time(self, pars_dict=None, file=None, verbose=False):
@@ -904,46 +918,62 @@ class Simulation:
         start_time = max([traj.times[0] for traj in self.trajectories.values()])
         
         # Create time bins for discretization
-        time_bins = np.linspace(start_time, end_time, n_bins + 1)
-        time_centers = 0.5 * (time_bins[:-1] + time_bins[1:])
+        time_edges = np.linspace(start_time, end_time, n_bins + 1)
+        time_centers = 0.5 * (time_edges[:-1] + time_edges[1:])
         
         # STAGE 1: Intra-trajectory averaging
         # For each trajectory, bin its energy measurements and average within bins
-        hists = []
-        for traj in self.trajectories.values():
+        hists = np.empty((len(self), n_bins, len(self.metadata["surf_species_names"])+1))
+        for itraj, traj in enumerate(self.trajectories.values()):
             times, coverages = traj.get_coverages_vs_time(atoms_per_uc=atoms_per_uc)
             
             # Initialize binned energy and sample counts for this trajectory
-            hist   = np.zeros((n_bins, coverages.shape[1]))
-            counts = np.zeros(n_bins)
+            hist   = np.zeros((n_bins + 2, coverages.shape[1]))
+            counts = np.zeros(n_bins + 2)
             
-            # Accumulate values into bins
-            for t, cov in zip(times, coverages):
-                if start_time <= t <= end_time:
-                    bin_idx = np.digitize(t, time_bins, right=False) - 1
-                    if 0 <= bin_idx < n_bins:
-                        hist[bin_idx] += cov
-                        counts[bin_idx] += 1  # Track number of samples per bin
+            # get arrays of bin indices and their differences
+            bin_idxs = np.digitize(times, time_edges, right=False)
+            idx_diffs = np.diff(bin_idxs)
+
+            # Put the initial value into the histogram
+            hist[bin_idxs[0], :] += coverages[0]
+            counts[bin_idxs[0]] += 1
+
+            # Looping over the rest of trajectory
+            for i in range(1, len(bin_idxs)):
+
+                # put a value into its bin
+                hist[bin_idxs[i], :] += coverages[i]
+                counts[bin_idxs[i]] += 1  # Track number of samples per bin
+
+                # put the previous value into bins jumped over
+                if idx_diffs[i-1] > 1:
+                    hist[bin_idxs[i-1] + 1 : bin_idxs[i], :] += np.tile(coverages[i-1], (idx_diffs[i-1] - 1,1))
+                    counts[bin_idxs[i-1] + 1 : bin_idxs[i] ] += np.ones(idx_diffs[i-1] - 1, dtype=int)
+
             
             # Average within each bin (multiple measurements → single value per bin)
             # This gives us one representative value per time bin for THIS trajectory
-            hist = np.divide(hist, counts[:, np.newaxis], out=np.full_like(hist, np.nan), where=counts[:, np.newaxis] > 0)
+            # hist = np.divide(hist, counts[:, np.newaxis], out=np.full_like(hist, np.nan), where=counts[:, np.newaxis] > 0)
             
-            hists.append(hist)
+            hists[itraj, :, :] = hist[1:-1, :] / counts[1:-1, None]
         
         # STAGE 2: Inter-trajectory (ensemble) averaging
         # Each trajectory now contributes exactly one value per time bin
         # Average across trajectories with equal weighting
-        hists = np.array(hists)
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                'ignore', message='Mean of empty slice', category=RuntimeWarning
-            )
-            warnings.filterwarnings(
-                'ignore', message='Degrees of freedom <= 0 for slice', category=RuntimeWarning
-            )
-            avgs = np.nanmean(hists, axis=0)
-            stds = np.nanstd(hists, axis=0)  # Trajectory-to-trajectory variation
+        # hists = np.array(hists)
+        # with warnings.catch_warnings():
+        #     warnings.filterwarnings(
+        #         'ignore', message='Mean of empty slice', category=RuntimeWarning
+        #     )
+        #     warnings.filterwarnings(
+        #         'ignore', message='Degrees of freedom <= 0 for slice', category=RuntimeWarning
+        #     )
+        #     avgs = np.nanmean(hists, axis=0)
+        #     stds = np.nanstd(hists, axis=0)  # Trajectory-to-trajectory variation
+
+        avgs = np.mean(hists, axis=0)
+        stds =  np.std(hists, axis=0)  # Trajectory-to-trajectory variation
 
         # Save time series data to file
         if file is not None:

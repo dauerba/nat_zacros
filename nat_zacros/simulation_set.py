@@ -610,7 +610,8 @@ class SimulationSet:
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
-    def plot_energies(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True):
+    def plot_energies(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, 
+                      show_eq=True, ylimit=None):
         """Plot ensemble-averaged energy vs time for the loaded simulations.
         Parameters
         ----------
@@ -626,6 +627,8 @@ class SimulationSet:
             Font size for the overall figure title.
         show_eq : bool, default True
             If True, show equilibration fraction on each subplot.
+        ylimit : str or None, default None
+            If 'eq', scales y-limit of plots to show approach to equilibrium from above
         Returns
         -------
         None
@@ -633,7 +636,7 @@ class SimulationSet:
 
         # Set up subplots
 
-        nrows = int(np.ceil(len(self.simulations)/ncols))
+        nrows = int(np.ceil(len(energies_vs_time)/ncols))
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
@@ -651,9 +654,9 @@ class SimulationSet:
             # Get ensemble-averaged energy vs time and fraction for this simulation
             times, energies, energies_std = energies_vs_time[key]
             if np.all(np.isnan(energies)):
-                plot_sim = False
+                sim_is_valid = False
             else:
-                plot_sim = True
+                sim_is_valid = True
 
             if show_eq:
                 try:
@@ -682,7 +685,7 @@ class SimulationSet:
                 title += f' ({fraction*100:.0f}%)'
             ax.set_title(title, fontsize = title_fontsize)
 
-            if plot_sim:
+            if sim_is_valid:
                 ax.grid()
 
                 if len(times_plot) > 0 and times_plot[-1] != 0:
@@ -691,22 +694,29 @@ class SimulationSet:
                     max_time = float(np.max(times_arr))
                     percent = (times_arr / max_time) * 100.0
 
-                    ax.plot(percent, energies, marker='o', linestyle='-', markersize=2)
-                    ax.set_xlabel('Percent of time (%)')
+                    ax.plot(times_arr, energies, marker='o', linestyle='-', markersize=2)
+                    ax.set_xlabel(x_label)
                     ax.set_ylabel('Energy (eV)')
+                    ax.set_xlim(0.0, max_time)
+
+                    ax1 = ax.twiny()  # Create a twin x-axis for time in seconds
+
+                    # ax1.plot(percent, energies, marker='o', linestyle='-', markersize=2)
+                    ax1.set_xlabel(' ')
 
                     # Ensure percent axis spans 0-100 (0% -> time 0, 100% -> max_time)
-                    ax.set_xlim(0.0, 100.0)
+                    ax1.set_xlim(0.0, 100.0)
 
                     # Percent axis ticks: minor at 10%, major (and labels) at 20%
-                    ax.xaxis.set_major_locator(MultipleLocator(20))
-                    ax.xaxis.set_minor_locator(MultipleLocator(10))
-                    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
+                    ax1.xaxis.set_major_locator(MultipleLocator(20))
+                    ax1.xaxis.set_minor_locator(MultipleLocator(10))
+                    ax1.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
 
                     # Shade equilibrium region in percent coordinates
                     eq_idx = int(np.round((1 - fraction) * (len(times) - 1)))
                     left_p = (times_arr[eq_idx] / max_time) * 100.0
-                    ax.axvspan(left_p, 100.0, alpha=0.2, color='green') 
+                    ax1.axvspan(left_p, 100.0, alpha=0.2, color='green') 
+
                 else:
                     # Fallback: no valid times, plot energies vs times_plot as-is
                     ax.plot(times_plot, energies, marker='o', linestyle='-', markersize=2)
@@ -720,10 +730,11 @@ class SimulationSet:
                         eq_idx = 0  # no shading possible
 
                 # Set y-axis limits based on equilibrium range (guard empty)
-                if len(energies) > 0:
-                    equilibrium_energies = energies[eq_idx:] if eq_idx < len(energies) - 1 and show_eq else energies
-                    if len(equilibrium_energies) > 0:
-                        ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
+                if ylimit == 'eq':
+                    if len(energies) > 0:
+                        equilibrium_energies = energies[eq_idx:] if eq_idx < len(energies) - 1 and show_eq else energies
+                        if len(equilibrium_energies) > 0:
+                            ax.set_ylim(min(equilibrium_energies) * 0.9, max(equilibrium_energies) * 1.1)
 
         # Hide unused subplots
         total_plots = len(axes.flatten())
@@ -854,7 +865,7 @@ class SimulationSet:
 
         # Set up subplots
 
-        nrows = int(np.ceil(len(self.simulations)/ncols))
+        nrows = int(np.ceil(len(covs_vs_time)/ncols))
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
@@ -899,31 +910,6 @@ class SimulationSet:
             if show_eq:
                 title += f' ({fraction*100:.0f}%)'
             ax.set_title(title, fontsize = title_fontsize)
-
-            # if len(times_plot) > 0 and times_plot[-1] != 0:
-            #     # Use the actual maximum time (not the last element) in case times are unsorted
-            #     times_arr = np.asarray(times_plot, dtype=float)
-            #     max_time = float(np.max(times_arr))
-            #     percent = (times_arr / max_time) * 100.0
-
-            #     ax.plot(percent, covs[:,1], marker='o', linestyle='-', markersize=2)
-            #     ax.set_xlabel('Percent of time (%)')
-            #     ax.set_ylabel('Coverage (ML)')
-
-            #     # Ensure percent axis spans 0-100 (0% -> time 0, 100% -> max_time)
-            #     ax.set_xlim(0.0, 100.0)
-
-            #     # Percent axis ticks: minor at 10%, major (and labels) at 20%
-            #     ax.xaxis.set_major_locator(MultipleLocator(20))
-            #     ax.xaxis.set_minor_locator(MultipleLocator(10))
-            #     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v:.0f}%"))
-
-            #     # Shade equilibrium region in percent coordinates
-            #     eq_idx = int(np.round((1 - fraction) * (len(times) - 1)))
-            #     left_p = (times_arr[eq_idx] / max_time) * 100.0
-            #     ax.axvspan(left_p, 100.0, alpha=0.2, color='green') 
-            # else:
-                # Fallback: no valid times, plot energies vs times_plot as-is
 
             # Determine which species to plot
             if species is None:
