@@ -839,7 +839,9 @@ class SimulationSet:
         plt.show()    
 
 
-    def plot_coverages(self, covs_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, show_eq=True, species=None):
+    def plot_coverages(self, covs_vs_time, ncols=3, figsize=(12,2.5), 
+                       title_fontsize=10, suptitle_fontsize=16, 
+                       fit=None, show_eq=True, species=None):
         """Plot ensemble-averaged coverages vs time for the loaded simulations.
         Parameters
         ----------
@@ -853,6 +855,8 @@ class SimulationSet:
             Font size for subplot titles.
         suptitle_fontsize : int, default 16
             Font size for the overall figure title.
+        fit : dict or None, default None
+            Dictionary mapping simulation keys to tuples of (fit_array, fit parameters)
         show_eq : bool, default True
             If True, show equilibration fraction on each subplot.
         species : str, list of str, or None, default None
@@ -876,7 +880,7 @@ class SimulationSet:
             print("No simulations loaded: Nothing to plot.")
             return
 
-        # Iterate over loaded simulations in numerical order
+        # Iterate over loaded simulations
         for isim, key in enumerate(covs_vs_time.keys()):
             sim = self.simulations[key]
 
@@ -895,13 +899,16 @@ class SimulationSet:
             ax = axes[isim//ncols, isim%ncols]
 
             # Determine time units
-            use_ms = len(times) > 0 and np.max(times) < 1.0
-            if use_ms:
-                times_plot = times * 1000
-                x_label = 'Time (ms)'
-            else:
-                times_plot = times
-                x_label = 'Time (s)'
+            if len(times) > 0:
+                if  np.max(times) < 1e-3:
+                    times_plot = times * 1e6
+                    x_label = r'Time ($\mu$s)'
+                elif  1e-03 <= np.max(times) < 1.0:
+                    times_plot = times * 1000
+                    x_label = 'Time (ms)'
+                else:
+                    times_plot = times
+                    x_label = 'Time (s)'
                 
             # Plot coverage versus percent of total time on bottom axis; show time on top axis
             ax.grid()
@@ -929,7 +936,12 @@ class SimulationSet:
                         print(f"Warning: Species '{sp}' not found in simulation {key}. Available: {sim.metadata['surf_species_names']}")
 
             for i in species_indices:
-                ax.plot(times_plot, covs[:,i], label=f'{sim.metadata["surf_species_names"][i-1]}')
+                ax.plot(times_plot, covs[:,i], 'k-', label=f'{sim.metadata["surf_species_names"][i-1]}')
+
+            if len(species_indices) == 1 and fit is not None:
+                par_str = ' '.join([f'{f:0.1e}' for f in fit[key][1]])
+                ax.plot(times_plot, fit[key][0], 'r--', label=f'Fit with pars: {par_str} ')
+
             ax.set_xlabel(x_label)
             ax.set_ylabel('Coverage (ML)')
             ax.legend()
