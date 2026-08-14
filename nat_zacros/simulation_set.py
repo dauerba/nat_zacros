@@ -1191,6 +1191,6 @@ class SimulationSet:
     @property
     def loaded_ids(self):
         """Return list of simulation identifiers currently loaded in memory."""
-        return sorted([key for key in self.simulations.keys() if self.simulations[key].is_loaded])
+        return [key for key in self.simulations.keys() if self.simulations[key].is_loaded]
 
 
