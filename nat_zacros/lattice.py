@@ -7,7 +7,7 @@ surface lattices used in Zacros kinetic Monte Carlo simulations.
 
 import numpy as np
 from pathlib import Path
-
+import matplotlib.pyplot as plt
 
 class Lattice:
     """
@@ -24,11 +24,6 @@ class Lattice:
     fractional_coordinates : ndarray
         Fractional coordinates of sites within unit cell
     is_defined : bool
-        True if lattice parameters have been set
-    n_cell_sites : int
-        Number of sites per unit cell
-    n_site_types : int
-        Number of distinct site types
     neighboring_structure : list of tuples
         Neighboring connectivity pattern
     site_coordinations : ndarray
@@ -241,44 +236,44 @@ class Lattice:
         else:
             return distances
 
-    def get_nn_distance(self, order=1):
-        """
-        Get nearest neighbor distance for FCC(111) lattice.
+    # def get_nn_distance(self, order=1):
+    #     """
+    #     Get nearest neighbor distance for FCC(111) lattice.
         
-        Parameters
-        ----------
-        order : int
-            Neighbor order (1=1nn, 2=2nn, etc.)
+    #     Parameters
+    #     ----------
+    #     order : int
+    #         Neighbor order (1=1nn, 2=2nn, etc.)
             
-        Returns
-        -------
-        float
-            Distance to nth nearest neighbor
+    #     Returns
+    #     -------
+    #     float
+    #         Distance to nth nearest neighbor
             
-        Notes
-        -----
-        For FCC(111) with lattice constant a:
-        1nn = a, 2nn = sqrt(3)*a, 3nn = 2*a, etc.
-        """
-        a = np.linalg.norm(self.unit_cell_vectors[0])
+    #     Notes
+    #     -----
+    #     For FCC(111) with lattice constant a:
+    #     1nn = a, 2nn = sqrt(3)*a, 3nn = 2*a, etc.
+    #     """
+    #     a = np.linalg.norm(self.unit_cell_vectors[0])
         
-        # Distance formulas for FCC(111)
-        nn_distances = {
-            1: a,
-            2: np.sqrt(3) * a,
-            3: 2 * a,
-            4: np.sqrt(7) * a,
-            5: 3 * a,
-            6: np.sqrt(12) * a,
-            7: np.sqrt(13) * a,
-            8: 4 * a,
-            9: np.sqrt(19) * a,
-        }
+    #     # Distance formulas for FCC(111)
+    #     nn_distances = {
+    #         1: a,
+    #         2: np.sqrt(3) * a,
+    #         3: 2 * a,
+    #         4: np.sqrt(7) * a,
+    #         5: 3 * a,
+    #         6: np.sqrt(12) * a,
+    #         7: np.sqrt(13) * a,
+    #         8: 4 * a,
+    #         9: np.sqrt(19) * a,
+    #     }
         
-        if order in nn_distances:
-            return nn_distances[order]
-        else:
-            raise ValueError(f"Neighbor order {order} not implemented. Valid orders: 1-9")
+    #     if order in nn_distances:
+    #         return nn_distances[order]
+    #     else:
+    #         raise ValueError(f"Neighbor order {order} not implemented. Valid orders: 1-9")
 
     def get_cell_area(self):
         """
@@ -292,6 +287,80 @@ class Lattice:
         # 2D cross product: |v1 × v2| = v1_x * v2_y - v1_y * v2_x
         v1, v2 = self.cell_vectors
         return abs(v1[0] * v2[1] - v1[1] * v2[0])
+
+
+    def plot(self, ax=None, scaling=1, markers=None, colors=None, legend=True,
+                    show_axis = True, link=True):
+        """Plot the lattice.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes or None; default None
+            The axes on which to plot. If None, a new figure and axes are created.
+        scaling : float; default 1
+            Scaling factor for the size of the markers.
+        ads_scaling:
+
+        """
+
+        # Library of markers and colors for plotting different species and site types
+        markers_default =   ["s", "o", "v", "D", "p", "^", "+", "x", "*", "P", 
+                                "H", "X", "d", "h", ",", ".", "<", ">", "1", "2"]
+        colors_default = ["gray", "r", "g", "b", "m", "c", "k",
+                        "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
+                        "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan",
+                        "gold", "turquoise", "lime", "indigo"]
+
+        if markers is None:
+            markers = markers_default
+        elif len(markers) < len(self.site_type_names):
+            markers = markers_default
+            print(f"Not enough markers provided for {len(self.site_type_names)} site type(s). Using defaults.")
+        if colors is None:
+            colors = colors_default
+        elif len(colors) < len(self.site_type_names):
+            colors = colors_default
+            print(f"Not enough colors provided for {len(self.site_type_names)} site type(s). Using defaults.")
+
+        # Create a new figure and axes if none are provided
+        if not ax:
+            fig, ax = plt.subplots(figsize=(8,6))
+        
+        title = "Lattice structure"
+
+        # Set up the plot
+        ax.set_title(title)
+        ax.set_xlabel(r'x ($\AA$)')
+        ax.set_ylabel(r'y ($\AA$)')
+        ax.set_aspect(1.0)
+
+        # Set marker size based on the number of lattice sites and scaling factor
+        size = 1.5*440 / np.sqrt(len(self)) * scaling
+
+        # Get lattice site coordinates
+        x, y = self.coordinates.T
+
+        if link:
+            for i in range(len(x)):
+                for xn, yn in self.coordinates[self.site_nns[i]]:
+                    if np.abs(x[i] - xn) < 0.5*np.max(x) and np.abs(y[i] - yn) < 0.5*np.max(y):
+                        ax.plot([x[i], xn],[y[i], yn], lw=0.5, color='lightgray', zorder=0)
+        
+
+        # Loop over site types
+        for i_st in range(len(self.site_type_names)):
+            # Get indices for a site type i_st+1
+            ids = np.where(self.site_types == i_st+1)[0]
+
+            ax.scatter(x[ids], y[ids], color=colors[i_st], marker= markers[i_st], s=size, 
+                    label= self.site_type_names[i_st])
+
+        if legend:
+            fig.legend(loc='outside center right', frameon=False)
+        if not show_axis:
+            ax.axis('off')
+                    
+    
 
     def __len__(self):
         """Return total number of Lattice sites."""
