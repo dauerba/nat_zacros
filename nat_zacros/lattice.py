@@ -119,8 +119,18 @@ class Lattice:
         #
         try:
             with open(folder_p / 'lattice_input.dat', 'r') as f:
-                content = [line for line in f.readlines() if (line.strip() and not line.startswith('#'))]
-            content = [line.split('#')[0] for line in content]
+                content = []
+
+                # dja change 2026-08-20
+                # correct bug that only ignored comments at the start of the line
+
+                # read lines ignoring comments and empty lines
+                for raw_line in f:
+                    line = raw_line.split('#', 1)[0].strip()
+                    if line:
+                        content.append(line)
+                # end dja change
+                
             for i,line in enumerate(content):
                 ls = line.split()
                 if ls[0] == 'lattice':
@@ -153,7 +163,7 @@ class Lattice:
                        self.neighboring_structure.append( (int(parts[0].split('-')[0]), int(parts[0].split('-')[1]), parts[1]) )
                        j += 1
         except:
-            print(f'cannot read lattice_input.dat from {self.folder}')
+            print(f'error reading lattice_input.dat from {self.folder}')
             self.is_defined = False
 
         #
