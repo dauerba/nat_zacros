@@ -118,7 +118,9 @@ class Lattice:
         # Read lattice input file
         #
         try:
-            with open(folder_p / 'lattice_input.dat', 'r') as f:
+            # Use tolerant UTF-8 decoding because external generators may include
+            # non-UTF8 bytes in comment headers that are irrelevant for parsing.
+            with open(folder_p / 'lattice_input.dat', 'r', encoding='utf-8', errors='replace') as f:
                 content = []
 
                 # dja change 2026-08-20
@@ -175,7 +177,7 @@ class Lattice:
         site_nns = []
 
         try:
-            with open(folder_p / 'lattice_output.txt') as f:
+            with open(folder_p / 'lattice_output.txt', 'r', encoding='utf-8', errors='replace') as f:
                 v1 = f.readline().split()[1:3]
                 v2 = f.readline().split()[1:3]
                 self.cell_vectors = np.array([v1, v2], dtype=float)
