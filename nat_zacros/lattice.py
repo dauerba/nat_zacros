@@ -302,7 +302,7 @@ class Lattice:
 
 
     def plot(self, ax=None, scaling=1, markers=None, colors=None, legend=True,
-                    show_axis = True, link=True):
+                    show_axis = True, link=True, figsize = (8,6), legend_loc = 'outside center right'):
         """Plot the lattice.
 
         Parameters
@@ -336,7 +336,7 @@ class Lattice:
 
         # Create a new figure and axes if none are provided
         if not ax:
-            fig, ax = plt.subplots(figsize=(8,6))
+            fig, ax = plt.subplots(figsize=figsize)
         
         title = "Lattice structure"
 
@@ -368,7 +368,7 @@ class Lattice:
                     label= self.site_type_names[i_st])
 
         if legend:
-            fig.legend(loc='outside center right', frameon=False)
+            fig.legend(loc=legend_loc, frameon=True)
         if not show_axis:
             ax.axis('off')
                     
