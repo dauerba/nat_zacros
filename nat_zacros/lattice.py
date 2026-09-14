@@ -302,7 +302,8 @@ class Lattice:
 
 
     def plot(self, ax=None, scaling=1, markers=None, colors=None, legend=True,
-                    show_axis = True, link=True, figsize = (8,6), legend_loc = 'outside center right'):
+                    show_axis = True, link=True, figsize = (8,6), legend_loc = 'outside center right',
+                    show_unit_cell=True):
         """Plot the lattice.
 
         Parameters
@@ -346,6 +347,13 @@ class Lattice:
         ax.set_ylabel(r'y ($\AA$)')
         ax.set_aspect(1.0)
 
+        if show_unit_cell:
+            p1 = self.unit_cell_vectors[0]
+            p3 = self.unit_cell_vectors[1]
+            p2 = p1 + p3
+            #ax.plot([0, p1[0], p2[0], p3[0], 0], [0, p1[1], p2[1], p3[1], 0], 'k--', lw=0.8)
+            ax.fill([0, p1[0], p2[0], p3[0], 0], [0, p1[1], p2[1], p3[1], 0], color='skyblue', alpha=0.2)
+
         # Set marker size based on the number of lattice sites and scaling factor
         size = 1.5*440 / np.sqrt(len(self)) * scaling
 
@@ -356,7 +364,7 @@ class Lattice:
             for i in range(len(x)):
                 for xn, yn in self.coordinates[self.site_nns[i]]:
                     if np.abs(x[i] - xn) < 0.5*np.max(x) and np.abs(y[i] - yn) < 0.5*np.max(y):
-                        ax.plot([x[i], xn],[y[i], yn], lw=0.5, color='lightgray', zorder=0)
+                        ax.plot([x[i], xn],[y[i], yn], lw=0.5, color='lightgray')
         
 
         # Loop over site types
