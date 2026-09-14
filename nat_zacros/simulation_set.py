@@ -174,7 +174,7 @@ class SimulationSet:
         return arg
 
 
-    def get(self, property_key, pars_dict=None, simulations=None, use_fraction=False, save=True,
+    def get(self, property_key, pars_dict=None, simulations=None, use_fraction=False, save=True, load=False,
             autoload=False, cache=True, verbose=False):
         """
         Compute one cached ensemble property for one or more simulations.
@@ -197,6 +197,8 @@ class SimulationSet:
             Whether to use the equilibration fraction for the computation (default is False).
         save : bool, optional
             Whether to save the computed property to a cache file (default is True).
+        load : bool, optional
+            Whether to load the property from the file (default is False).
         autoload : bool, optional
             Whether to automatically load simulations that are not currently loaded (default is False).
         cache : bool, optional
@@ -224,6 +226,22 @@ class SimulationSet:
             if key in self.simulations.keys():
 
                 sim = self.simulations[key]
+
+                # Get the property from the results file if it exists and load is True
+                if load:
+                    results_file = self.data_path / self.results_dir / sim.dir.name / (property_key + '.dat')
+                    try:
+                        data = np.loadtxt(results_file).T
+                        n_species = len(sim.metadata['surf_species_names'])
+                        results[key] = (data[0], data[1:1+n_species+1].T, data[1+n_species+1:].T)
+                        if verbose:
+                            print(f"Loaded {property_key} for simulation #{key} from {results_file}.")
+                        continue  # Skip to next simulation after loading
+                    except FileNotFoundError:
+                        if verbose:
+                            print(f"Results file {results_file} not found for simulation #{key}. Computing instead.")
+
+
                 # Check if simulation is loaded; if not, either autoload or skip based on the autoload flag
                 if not sim.is_loaded:
                     if autoload:
