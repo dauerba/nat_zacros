@@ -88,7 +88,7 @@ class Simulation:
 
         self.metadata = metadata
 
-        self._necessary_keys = [
+        self._mandatory_keys = [
             'lattice_dimensions', 
             'surf_species_names',
             'n_adsorbates', 
@@ -97,7 +97,7 @@ class Simulation:
             ]
 
         args_ok = True
-        for key in self._necessary_keys:
+        for key in self._mandatory_keys:
             if key not in self.metadata:
                 print(f" {key} undefined.")
                 args_ok = False
@@ -340,7 +340,7 @@ class Simulation:
 
         valid_dists = distances[(distances > 0) & (distances <= r_max)]
         counts, _ = np.histogram(valid_dists, bins=bin_edges)
-        g_ref = counts / len(self.lattice)
+        g_ref = counts / self.lattice.n_sites
 
         return r_bins, g_ref
 
@@ -831,8 +831,8 @@ class Simulation:
         
         
         # Compute cluster size frequencies for each trajectory
-        freqs_avg = np.zeros(len(self.lattice))
-        freqs_std = np.zeros(len(self.lattice))
+        freqs_avg = np.zeros(self.lattice.n_sites)
+        freqs_std = np.zeros(self.lattice.n_sites)
         for traj in self.trajectories.values():
             freqs = traj.get_cluster_size_freqs(cutoff=cutoff, eps=eps, fraction=fraction, method=method)
             freqs_avg += freqs

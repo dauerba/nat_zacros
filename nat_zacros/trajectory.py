@@ -73,7 +73,7 @@ class Trajectory:
 
         self.metadata = metadata
 
-        self._necessary_keys = [
+        self._mandatory_keys = [
             'lattice_dimensions', 
             'surf_species_names',
             'n_adsorbates', 
@@ -82,7 +82,7 @@ class Trajectory:
             ]
 
         args_ok = True
-        for key in self._necessary_keys:
+        for key in self._mandatory_keys:
             if key not in self.metadata:
                 print(f" {key} undefined.")
                 args_ok = False
@@ -189,7 +189,7 @@ class Trajectory:
 
             try:
                 # Single-pass streaming parse (fast)
-                nsites = len(self.lattice)
+                nsites = self.lattice.n_sites
                 # Read in a trajectory from history_output.txt
                 with open(self.dir / 'history_output.txt', 'r') as f: 
                     content = f.readlines()
@@ -277,7 +277,7 @@ class Trajectory:
             
             try:
                 # Get number of lattice sites
-                nsites = len(self.lattice)
+                nsites = self.lattice.n_sites
                 # Read in a trajectory from general_output.txt
                 with open(self.dir / f'{zfile}.txt', 'r') as f: 
                     content = f.readlines()
@@ -473,7 +473,7 @@ class Trajectory:
             func = 'get_clusters'
        
         # Initialize cluster size counts (index is cluster size)
-        cluster_size_freqs = np.zeros(len(self.lattice))
+        cluster_size_freqs = np.zeros(self.lattice.n_sites)
         
         # Determine number of snapshots to use based on fraction
         n_states = len(self)
@@ -629,30 +629,30 @@ class Trajectory:
             Row indices (y-coordinates) of the adsorbate at each state
             
         """
-        # Total sites per col in the 2D lattice
-        sites_per_col = self.lattice.size[0] * self.lattice.n_cell_sites
 
         # Get sites occupied by adsorbate with ads_id
         sites = self.get_ads_path(ads_id, trim_zeros=True)
 
         # Convert site indices to the 2D form    
-        cols = sites // sites_per_col
-        rows = sites %  sites_per_col // self.lattice.n_cell_sites
+        cols = self.lattice.cols[sites]
+        rows = self.lattice.cols[sites]
 
         if expand:
 
-            # Get lattice size
-            lattice_size = self.lattice.size
-
-            diffs = np.diff(cols), np.diff(rows)
+            # Get differences in cols and rows
+            diffs_col = np.diff(cols)
+            diffs_row = np.diff(rows)
             
-            wrap_jumps = [ np.where(diffs[i] == lattice_size[i] - 1, -lattice_size[i],
-                        np.where(diffs[i] == 1 - lattice_size[i], lattice_size[i], 0)) for i in range(2)]
+            wrap_jumps_col = np.where(diffs_col == self.lattice.n_cols - 1, -self.lattice.n_cols, \
+                             np.where(diffs_col == 1 - self.lattice.n_cols, self.lattice.n_cols, 0))
+            wrap_jumps_row = np.where(diffs_row == self.lattice.n_rows - 1, -self.lattice.n_rows, \
+                             np.where(diffs_row == 1 - self.lattice.n_rows, self.lattice.n_rows, 0))
 
-            cumulative_shift = [np.concatenate([[0], np.cumsum(wj)]) for wj in wrap_jumps]
+            cumulative_shift_col = np.concatenate([[0], np.cumsum(wrap_jumps_col)])
+            cumulative_shift_row = np.concatenate([[0], np.cumsum(wrap_jumps_row)])
 
-            return (np.array(cols + cumulative_shift[0], dtype=int), 
-                    np.array(rows + cumulative_shift[1], dtype=int) )
+            return (np.array(cols + cumulative_shift_col, dtype=int), 
+                    np.array(rows + cumulative_shift_row, dtype=int) )
         
         else:
             return cols, rows
@@ -753,4 +753,4 @@ class Trajectory:
             t_range = f"t=[{self.times[0]:.2e}, {self.times[-1]:.2e}]"
         else:
             t_range = "empty"
-        return f"Trajectory(nstates={len(self)}, {t_range}, lattice={len(self.lattice)} sites)"
+        return f"Trajectory(nstates={len(self)}, {t_range}, lattice={self.lattice.n_sites} sites)"

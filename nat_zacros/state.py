@@ -74,30 +74,29 @@ class State:
         lattice : Lattice object
             The surface lattice on which adsorbates are placed
         dirname : str or Path, optional
-            Directory containing history_output.txt. If provided,
-            will automatically load the first state.
+            Directory containing Zacros output. 
         """
         self.dir = str(dirname) if dirname is not None else None
 
         # Store reference to lattice
         self.lattice = lattice
 
-        # Get metadate and check that necessary keys are present
+        # Get metadata and check that mandatory keys are present
         self.metadata = metadata
 
-        self._necessary_keys = [
+        self._mandatory_keys = [
             'surf_species_names'
             ]
 
         args_ok = True
-        for key in self._necessary_keys:
+        for key in self._mandatory_keys:
             if key not in self.metadata:
                 print(f" {key} undefined.")
                 args_ok = False
 
         if not args_ok:
             self.is_valid = False
-            print('Not enough metadata for a valid simulation.')
+            print('  Warning: State object created without sufficient metadata.')
 
         # default is no species
         self.gas_species_names = []
@@ -110,12 +109,9 @@ class State:
         self.gas_species_change = []
 
         # Arrays defining the adsorbed species on the lattice
-        # with indices corresponding to lattice site indices starting at 1
-
-        nsites = len(self.lattice) 
-        self.ads_ids =    np.zeros(nsites, dtype=int)
-        self.occupation = np.zeros(nsites, dtype=int)
-        self.dentation =  np.zeros(nsites, dtype=int)
+        self.ads_ids =    np.zeros(self.lattice.n_sites, dtype=int)
+        self.occupation = np.zeros(self.lattice.n_sites, dtype=int)
+        self.dentation =  np.zeros(self.lattice.n_sites, dtype=int)
 
 
     def create_from_deltas(self, deltas):
@@ -221,7 +217,7 @@ class State:
             with open(Path(self.dir) / 'history_output.txt', 'r') as f:
                 content = f.readlines()    
 
-            nsites = len(self.lattice)
+            nsites = self.lattice.n_sites
             for site in range(nsites):
                 parts = content[7 + idx*(nsites+1) + site].split()
                 self.ads_ids[site]    = int(parts[1])
@@ -458,7 +454,7 @@ class State:
         return np.arange(len(clusters)), clusters, sizes
 
 
-    def get_coverages(self, atoms_per_uc=1):
+    def get_coverages(self):
         """
         Calculate the coverages for surface species (the ratio of adsorbate molecules to the number of structural surface molecules).
 
@@ -471,7 +467,7 @@ class State:
 
         coverages = np.empty(self.n_surf_species + 1)
         indices, counts = np.unique(self.occupation, return_counts=True)
-        coverages[indices] = counts / (self.lattice.size[0] * self.lattice.size[1] * atoms_per_uc)
+        coverages[indices] = counts / self.lattice.n_sites
 
         # Here is another (probably, more efficient) way to count
         # we've chosen np.unique for it does not deal with zeros
@@ -575,12 +571,13 @@ class State:
         counts, _ = np.histogram(dist_vector[(dist_vector > 0) & (dist_vector < r_max)], bins=bin_edges)
         
         # Normalize by g_ref if provided (number of neighbors in each shell)
+        # Warning: not checked for n_site_types > 1
         if g_ref is not None:
             counts_n = np.zeros_like(counts, dtype=float)
             np.divide(counts, g_ref, out=counts_n, where=g_ref!=0)
-            g_r = counts_n * degeneracy / (n_occupied_sites_1 * n_occupied_sites_2) * len(self.lattice)
+            g_r = counts_n * degeneracy / (n_occupied_sites_1 * n_occupied_sites_2) * self.lattice.n_sites
         else:
-            g_r = counts * degeneracy / (n_occupied_sites_1 * n_occupied_sites_2) * len(self.lattice)
+            g_r = counts * degeneracy / (n_occupied_sites_1 * n_occupied_sites_2) * self.lattice.n_sites
 
         return r_bins, g_r
 
@@ -748,7 +745,7 @@ class State:
         ax.set_aspect(1.0)
 
         # Set marker size based on the number of lattice sites and scaling factor
-        size = 1.5*440 / np.sqrt(len(self.lattice)) * scaling
+        size = 1.5*440 / np.sqrt(self.lattice.n_sites) * scaling
 
         # Put empty sites on the plot
         for ist, st in enumerate(self.lattice.site_type_names):
@@ -776,4 +773,4 @@ class State:
     def __repr__(self):
         """String representation of State class"""
         occ = [ (k, len(self.get_occupied_sites(k))) for k in self.surf_species_names.keys()]
-        return f"State(nsites={len(self.lattice)}, adsorbates={occ})"
+        return f"State(nsites={self.lattice.n_sites}, adsorbates={occ})"

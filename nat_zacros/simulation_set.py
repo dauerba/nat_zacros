@@ -19,7 +19,6 @@ import warnings
 from pathlib import Path
 import tarfile
 from .simulation import Simulation
-from .lattice import Lattice
 
 class SimulationSet:
     """

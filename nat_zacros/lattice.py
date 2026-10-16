@@ -10,47 +10,78 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 class Lattice:
-    """
-    FCC(111) surface lattice with periodic boundary conditions.
-    
+    """Represent a two-dimensional periodic surface lattice.
+
+    A lattice can be initialized from Zacros ``lattice_input.dat`` and
+    ``lattice_output.txt`` files, or used with the default one-site triangular
+    lattice. Site coordinates and cell vectors are stored in Cartesian
+    coordinates; periodic boundary conditions are applied when calculating
+    pairwise distances.
+
+    Parameters
+    ----------
+    dirname : str or pathlib.Path, optional
+        Directory containing the Zacros lattice input and output files. When
+        omitted, initialize a default lattice with one fcc site and unit
+        nearest-neighbor spacing.
+
     Attributes
     ----------
-    cell_vectors : ndarray, shape (2, 2)
-        Supercell lattice vectors (unit_cell_vectors * size)
-    coordinates : ndarray, shape (N, 2)
-        Cartesian coordinates of all lattice sites
-    folder : str (must be str for pickle cross-platform compatibility) or None
-        Directory containing lattice_input.dat and lattice_output.txt. Stored as string (not Path)
-    fractional_coordinates : ndarray
-        Fractional coordinates of sites within unit cell
+    folder : str or None
+        Path to the directory containing the Zacros lattice files, or ``None``
+        when no directory was supplied.
     is_defined : bool
-    neighboring_structure : list of tuples
-        Neighboring connectivity pattern
-    site_coordinations : ndarray
-        Number of nearest neighbors for each site
-    site_nns : list of ndarray
-        Nearest neighbor indices for each site
-    site_types : list or ndarray
-        Site type for each site
-    site_type_names : list of str
-        Names of site types (e.g., ['fcc', 'hcp'])
-    size : ndarray, shape (2,)
-        Number of unit cell repetitions in each direction
+        Whether lattice data has been loaded successfully. It is ``False``
+        before loading and when reading either lattice file fails.
     type : str
-        Lattice type (e.g., 'periodic_cell')
-    unit_cell_vectors : ndarray, shape (2, 2)
-        Unit cell lattice vectors in Cartesian coordinates
-        
+        Zacros lattice type, such as ``"periodic_cell"``.
+    unit_cell_vectors : numpy.ndarray, shape (2, 2)
+        Cartesian vectors defining the repeating unit cell.
+    n_cols : int
+        Number of unit-cell repeats along the first lattice direction.
+    n_rows : int
+        Number of unit-cell repeats along the second lattice direction.
+    cell_vectors : numpy.ndarray, shape (2, 2)
+        Cartesian vectors defining the full periodic simulation cell.
+    n_site_types : int
+        Number of distinct site types in the unit cell.
+    site_type_names : list of str
+        Names of the site types, in the order used by their one-based indices.
+    n_cell_sites : int
+        Number of sites in one unit cell.
+    site_types : numpy.ndarray, shape (n_sites,)
+        One-based site-type index for each lattice site.
+    n_cells : int
+        Total number of unit cells in the simulation cell.
+    n_sites : int
+        Total number of lattice sites in the simulation cell.
+    cols : numpy.ndarray, shape (n_sites,)
+        Zero-based first-direction unit-cell index for each lattice site.
+    rows : numpy.ndarray, shape (n_sites,)
+        Zero-based second-direction unit-cell index for each lattice site.
+    fractional_coordinates : numpy.ndarray, shape (n_cell_sites, 2)
+        Fractional coordinates of the sites within one unit cell.
+    neighboring_structure : list of tuple
+        Neighboring unit-cell offsets and direction labels that define the
+        repeating neighbor structure. Each entry is ``(column_offset,
+        row_offset, direction)``.
+    coordinates : numpy.ndarray, shape (n_sites, 2)
+        Cartesian coordinates of lattice sites.
+    site_coordinations : numpy.ndarray, shape (n_sites,)
+        Number of nearest neighbors for each lattice site.
+    site_nns : list of numpy.ndarray
+        Zero-based lattice-site indices of each site's nearest neighbors.
+
     Methods
     -------
-    get_cell_area()
-        Calculate simulation cell area
     load()
-        Read lattice definition from input/output files
-    get_nn_distance(order=1)
-        Get nearest neighbor distance for given order
-    pairwise_distances_pbc(coords)
-        Calculate all pairwise distances with PBC (vectorized)
+        Read the lattice definition and site connectivity from Zacros files.
+    pairwise_distances_pbc(condensed=False)
+        Calculate pairwise site distances using periodic boundary conditions.
+    get_cell_area()
+        Return the area of the simulation cell.
+    plot(...)
+        Plot the lattice geometry and nearest-neighbor links.
     """
     
     def __init__(self, dirname=None):
@@ -71,12 +102,22 @@ class Lattice:
         self.type = "periodic_cell"
         self.unit_cell_vectors =  np.array([ [1.0,          0.0], 
                                                 [1/2, np.sqrt(3)/2] ])
-        self.size = np.array([1, 1])
-        self.cell_vectors = self.unit_cell_vectors * self.size[:, np.newaxis]
+        self.n_cols = 1
+        self.n_rows = 1
+        self.cell_vectors = np.array([ self.unit_cell_vectors[0,:] * self.n_cols, 
+                                       self.unit_cell_vectors[1,:] * self.n_rows ])
+
         self.n_site_types = 1
         self.site_type_names = ['fcc']
         self.n_cell_sites = 1
         self.site_types = ['fcc']
+
+        self.n_cells = self.n_cols * self.n_rows
+        self.n_sites = self.n_cells * self.n_cell_sites
+
+        self.cols = np.array([0], dtype=int)
+        self.rows = np.array([0], dtype=int)
+
         self.fractional_coordinates = np.array([[1/3, 1/3]])
         self.neighboring_structure = [ (1,1, 'north'),
                                       (1,1, 'east'),
@@ -123,9 +164,6 @@ class Lattice:
             with open(folder_p / 'lattice_input.dat', 'r', encoding='utf-8', errors='replace') as f:
                 content = []
 
-                # dja change 2026-08-20
-                # correct bug that only ignored comments at the start of the line
-
                 # read lines ignoring comments and empty lines
                 for raw_line in f:
                     line = raw_line.split('#', 1)[0].strip()
@@ -141,7 +179,8 @@ class Lattice:
                     self.unit_cell_vectors = np.array([ [float(x) for x in content[i+1].split()],
                                                         [float(x) for x in content[i+2].split()] ])
                 if ls[0] == 'repeat_cell':
-                    self.size = np.array([ int(x) for x in ls[1:3] ], dtype=int)
+                    self.n_cols = int(ls[1])
+                    self.n_rows = int(ls[2])
                 if ls[0] == 'n_site_types':
                     self.n_site_types = int(ls[1])
                 if ls[0] == 'site_type_names':
@@ -167,6 +206,13 @@ class Lattice:
         except:
             print(f'error reading lattice_input.dat from {self.folder}')
             self.is_defined = False
+
+        self.n_cells = self.n_cols * self.n_rows
+        self.n_sites = self.n_cells * self.n_cell_sites
+
+        # Convert site indices to the 2D form    
+        self.cols = np.arange(self.n_sites) // (self.n_cell_sites * self.n_rows)
+        self.rows = (np.arange(self.n_sites) %  (self.n_cell_sites * self.n_rows)) // self.n_cell_sites
 
         #
         # Read lattice output file
@@ -248,45 +294,6 @@ class Lattice:
         else:
             return distances
 
-    # def get_nn_distance(self, order=1):
-    #     """
-    #     Get nearest neighbor distance for FCC(111) lattice.
-        
-    #     Parameters
-    #     ----------
-    #     order : int
-    #         Neighbor order (1=1nn, 2=2nn, etc.)
-            
-    #     Returns
-    #     -------
-    #     float
-    #         Distance to nth nearest neighbor
-            
-    #     Notes
-    #     -----
-    #     For FCC(111) with lattice constant a:
-    #     1nn = a, 2nn = sqrt(3)*a, 3nn = 2*a, etc.
-    #     """
-    #     a = np.linalg.norm(self.unit_cell_vectors[0])
-        
-    #     # Distance formulas for FCC(111)
-    #     nn_distances = {
-    #         1: a,
-    #         2: np.sqrt(3) * a,
-    #         3: 2 * a,
-    #         4: np.sqrt(7) * a,
-    #         5: 3 * a,
-    #         6: np.sqrt(12) * a,
-    #         7: np.sqrt(13) * a,
-    #         8: 4 * a,
-    #         9: np.sqrt(19) * a,
-    #     }
-        
-    #     if order in nn_distances:
-    #         return nn_distances[order]
-    #     else:
-    #         raise ValueError(f"Neighbor order {order} not implemented. Valid orders: 1-9")
-
     def get_cell_area(self):
         """
         Calculate area of the simulation cell.
@@ -355,7 +362,7 @@ class Lattice:
             ax.fill([0, p1[0], p2[0], p3[0], 0], [0, p1[1], p2[1], p3[1], 0], color='skyblue', alpha=0.2)
 
         # Set marker size based on the number of lattice sites and scaling factor
-        size = 1.5*440 / np.sqrt(len(self)) * scaling
+        size = 1.5*440 / np.sqrt(self.n_sites) * scaling
 
         # Get lattice site coordinates
         x, y = self.coordinates.T
@@ -380,17 +387,7 @@ class Lattice:
         if not show_axis:
             ax.axis('off')
                     
-    
-
-    def __len__(self):
-        """Return total number of Lattice sites."""
-        # If coordinates have been loaded from lattice_output.txt, use actual count
-        if len(self.coordinates) > 0:
-            return len(self.coordinates)
-        # Otherwise use calculated size from unit cell
-        return self.size[0] * self.size[1] * self.n_cell_sites
-
     def __repr__(self):
         """String representation of Lattice class"""
-        return (f"Lattice(type='{self.type}', size={tuple(self.size)}, "
-                f"nsites={len(self)}, area={self.get_cell_area():.2f})")
+        return (f"Lattice(type='{self.type}', size={(self.n_cols, self.n_rows)}, "
+                f"nsites={self.n_sites}, area={self.get_cell_area():.2f})")
