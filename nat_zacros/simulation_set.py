@@ -14,10 +14,8 @@ from matplotlib.ticker import MultipleLocator, FuncFormatter
 import numpy as np
 from lmfit import Model
 import multiprocessing as mp
-import warnings
 #from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-import tarfile
 from .simulation import Simulation
 
 class SimulationSet:
@@ -31,16 +29,16 @@ class SimulationSet:
 
     Attributes
     ----------
-    data_path : pathlib.Path
+    simset_path : pathlib.Path
         Root directory containing the log file, simulation directories, and
         results directory.
     log_file : str
         Name of the metadata log file.
-    simset_dir : str
+    sims_dirname : str
         Name of the subdirectory containing simulation folders.
-    results_dir : str
+    results_dirname : str
         Name of the subdirectory used for cached property outputs.
-    traj_dir_pfx : str
+    traj_dirname_pfx : str
         Prefix used to detect trajectory directories inside each simulation.
     simulations : dict[str, Simulation]
         Simulation objects keyed by the simulation identifier read from the
@@ -79,34 +77,42 @@ class SimulationSet:
     - 'rdf': {'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
     """
 
-    def __init__(self, data_path, 
-                 log_file           ='jobs.log', 
-                 simset_dir         ='data', 
-                 results_dir        ='results', 
-                 traj_dir_pfx       ='traj'):
+    def __init__(self, simset_path,
+                    sims_dirname     ='sims', 
+                    results_dirname  ='results', 
+                    traj_dirname_pfx ='traj', 
+                    verbose=False):
         """
         Initialize a SimulationSet.
         
         Parameters
         ----------
-        data_path : Path or str
+        simset_path : Path or str
             Path to simulation set directory (e.g., 'fn_3leed')
             This directory should contain jobs.log and the simulations subdirectory
         log_file : str, optional
             Name of the log file (default: 'jobs.log')
-        results_dir : str, optional
+        results_dirname : str, optional
             Name of the subdirectory for storing results (default: 'results')
-        simset_dir : str, optional
+        sims_dirname : str, optional
             Name of the subdirectory containing simulations (default: 'data')
-        traj_dir_pfx : str, optional
+        traj_dirname_pfx : str, optional
             Prefix for trajectory directories (default: 'traj').
              Trajectory directories should be named like 'traj_0', 'traj_1', etc
        
         """
         
-        # Validate the simulation set directory exists
-        if not Path(data_path).exists():
-            raise FileNotFoundError(f"Simulation set directory not found: {data_path}")
+        self.simset_path      = Path(simset_path)
+        self.results_dirname  = results_dirname
+        self.sims_dirname     = sims_dirname
+        self.traj_dirname_pfx = traj_dirname_pfx
+
+        # Validate the existence of the simulation folders
+        if not self.simset_path.exists():
+            raise FileNotFoundError(f"Simulation set directory not found: {self.simset_path}")
+        if not (self.simset_path / self.sims_dirname).exists():
+            print(f" Simulations directory {self.sims_dirname} not found.")
+            self.is_valid = False
 
         # Dictionary (property key: property_function)
         self._properties = {
@@ -118,34 +124,19 @@ class SimulationSet:
             'rdf':           'get_ensemble_rdf',
         }
 
-        self.data_path          = Path(data_path)
-        self.log_file           = log_file
-        self.results_dir        = results_dir
-        self.simset_dir         = simset_dir
-        self.traj_dir_pfx       = traj_dir_pfx
-        self.verbose            = False             # default verbosity
+        # Get the simulation keys from the names of simulation folders
+        sim_keys = [f.stem for f in (Path(self.simset_path) / self.sims_dirname).glob('*')]
+        # Get rid of duplicates and sort the keys
+        sim_keys = sorted(set(sim_keys))
 
-        # Try to untar simulations if simulation set directory doesn't exist
-        if not (self.data_path / self.simset_dir).exists():
-            # untar jobs directory
-            tgz_file = self.data_path / (self.simset_dir + '.tgz')
-            print(f"Extracting a simulation set from {tgz_file.as_posix()} ...")
-            try:
-                if not tgz_file.exists():
-                     # Try looking for .tar.gz if .tgz not found, or just fail
-                     pass
-                
-                with tarfile.open(tgz_file, "r:gz") as tar:
-                    tar.extractall(path=self.data_path)
-            except Exception as e:
-                print(f"Error extracting simulations: {e}")
-                print(f"Data for simulation set {self.simset_dir} is invalid.")
-                self.is_valid = False
-            else:
-                print(f"Extraction complete.")
-
-        # Load metadata from the log file to a dictionary of simulation objects
-        self.simulations = self._load_metadata()
+        # Create Simulation objects
+        # Format: dictionary of simulation-specific dictionaries
+        self.simulations = dict()
+        for key in sim_keys:
+            self.simulations[key] = Simulation(Path(self.simset_path) / self.sims_dirname / key, 
+                                        traj_dirname_pfx=self.traj_dirname_pfx,
+                                        results_path=self.simset_path /self.results_dirname/ key,
+                                        verbose=verbose)
 
         # Initialize equilibration fractions dictionary with default None for each simulation
         # This avoids KeyError when code expects an entry per simulation unless user overrides.
@@ -228,7 +219,7 @@ class SimulationSet:
 
                 # Get the property from the results file if it exists and load is True
                 if load:
-                    results_file = self.data_path / self.results_dir / sim.dir.name / (property_key + '.dat')
+                    results_file = self.simset_path / self.results_dirname / sim.dir.name / (property_key + '.dat')
                     try:
                         data = np.loadtxt(results_file).T
                         n_species = len(sim.metadata['surf_species_names'])
@@ -257,7 +248,7 @@ class SimulationSet:
                     raise ValueError(f"Property {property_key} not supported.")
 
                 if save:
-                    results_file = self.data_path / self.results_dir / sim.dir.name / (property_key + '.dat')
+                    results_file = self.simset_path / self.results_dirname / sim.dir.name / (property_key + '.dat')
                 else:
                     results_file = None
 
@@ -283,57 +274,6 @@ class SimulationSet:
 
         return results
 
-    def _load_metadata(self):
-        """
-        Load simulation metadata from log file and creates a dictionary of the corresponding
-        simulation objects.
-        
-        Parses the log file of simulation set to extract temperature, coverage, energy terms,
-        and lattice dimensions for all simulations in the set.
-        
-        Raises
-        ------
-        FileNotFoundError
-            If log file is not found in set directory
-        """
-        lfile = Path(self.data_path) / self.log_file
-        
-        # Parse log file
-        try:
-            with open(lfile, 'r') as f:
-                header = f.readline().split()  # Read header line
-                log_entries = [json.loads(line) for line in f if line.strip()]
-
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                f"log file not found at: {self.data_path}"
-            )
-        
-        # Extract metadata from log entry
-        # Format: dictionary of simulation-specific dictionaries
-        sim_dict = {}
-        for entry in log_entries:
-
-            sn = str(entry[0])
-            sdir = Path(self.data_path) / self.simset_dir / sn
-            md = {
-                'job_name'          : entry[1],
-                'lattice_dimensions': entry[2],  # [nx, ny]
-                'n_cells'           : entry[2][0] * entry[2][1],
-                'surf_species_names': entry[3],
-                'n_adsorbates'      : entry[4][0],
-                'temperature'       : entry[5],  # K
-                'coverage'          : entry[4][0] / (entry[2][0] * entry[2][1]),
-                'energy_terms'      : entry[6][1:]
-                }
-
-            sim_dict[sn] = Simulation(sdir, metadata=md, 
-                                        traj_dir_pfx=self.traj_dir_pfx,
-                                        results_dir=self.data_path /self.results_dir/ sn)
-            
-        return sim_dict
-            
-            
     def clear_traj_cache(self, simulations=None, verbose=False):
         """
         Remove internal trajectory cache files that speed up loading.
@@ -398,8 +338,8 @@ class SimulationSet:
                 for key in self._arg_to_list(simulations):
                     if key in self.simulations.keys():
                         sim = self.simulations[key]
-                        #fname = self.data_path / self.results_dir / sim.dir.name / (fmt + '.dat')
-                        path = self.data_path / self.results_dir / sim.dir.name
+                        #fname = self.simset_path / self.results_dirname / sim.dir.name / (fmt + '.dat')
+                        path = self.simset_path / self.results_dirname / sim.dir.name
                         fnames = path.glob(f'{fmt}*.dat')
                         counter += sim.clear_results(fnames, verbose=verbose)
                     else:
@@ -432,14 +372,14 @@ class SimulationSet:
         print("-" * 60)
         
         for sn in sim_nums:
-            res_dir = self.data_path / self.results_dir / str(sn)
-            data_dir = self.data_path / self.simset_dir / str(sn)
+            res_dir = self.simset_path / self.results_dirname / str(sn)
+            data_dir = self.simset_path / self.sims_dirname / str(sn)
             
             # 1. RAM Status
             in_ram = "LOADED" if sn in self.simulations else "-"
             
             # 2. Trajectory Cache Status
-            traj_pkls = list(data_dir.glob(f"{self.traj_dir_pfx}_*/traj.pkl"))
+            traj_pkls = list(data_dir.glob(f"{self.traj_dirname_pfx}_*/traj.pkl"))
             traj_status = f"{len(traj_pkls)} pkls" if traj_pkls else "MISSING"
             
             # 3. Results Status
@@ -579,7 +519,7 @@ class SimulationSet:
         return fit_results
 
 
-    def load(self, cache=True, zfile='history_output', workers=mp.cpu_count(), simulations=None, verbose=False):
+    def load(self, cache=True, workers=mp.cpu_count(), simulations=None, verbose=False):
         """
         Load trajectory data for selected simulations in the set.
         
@@ -603,7 +543,7 @@ class SimulationSet:
         # Load simulations selected
         for key in self._arg_to_list(simulations):
             if key in self.simulations.keys():
-                self.simulations[key].load(cache=cache, zfile=zfile, verbose=verbose)
+                self.simulations[key].load(cache=cache, verbose=verbose)
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
@@ -657,7 +597,7 @@ class SimulationSet:
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
-        fig_title = f'Ensemble averaged energy vs time -- {self.data_path.parts[-1]}'
+        fig_title = f'Ensemble averaged energy vs time -- {self.simset_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.0) # slightly lower y for better spacing
 
         if not self.simulations:
@@ -790,7 +730,7 @@ class SimulationSet:
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
-        fig_title = f'Ensemble averaged LEED intensity vs time -- {self.data_path.parts[-1]}'
+        fig_title = f'Ensemble averaged LEED intensity vs time -- {self.simset_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.0) # slightly lower y for better spacing
 
         if not self.simulations:
@@ -890,7 +830,7 @@ class SimulationSet:
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
-        fig_title = f'Ensemble averaged coverages vs time -- {self.data_path.parts[-1]}'
+        fig_title = f'Ensemble averaged coverages vs time -- {self.simset_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.0) # slightly lower y for better spacing
 
         if not self.simulations:
@@ -1010,7 +950,7 @@ class SimulationSet:
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
-        fig_title = f'Ensemble averaged RDFs -- {self.data_path.parts[-1]}'
+        fig_title = f'Ensemble averaged RDFs -- {self.simset_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
         if not self.simulations:
@@ -1075,7 +1015,7 @@ class SimulationSet:
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
-        fig_title = f'Ensemble averaged accessibility -- {self.data_path.parts[-1]}'
+        fig_title = f'Ensemble averaged accessibility -- {self.simset_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
         if not self.simulations:
@@ -1147,7 +1087,7 @@ class SimulationSet:
         figsize_scaled = (figsize[0], figsize[1] * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize_scaled, squeeze=False)
 
-        fig_title = f'Ensemble averaged cluster size histogram -- {self.data_path.parts[-1]}'
+        fig_title = f'Ensemble averaged cluster size histogram -- {self.simset_path.parts[-1]}'
         fig.suptitle(fig_title, fontsize=suptitle_fontsize, fontweight='bold', y=1.)
 
         if not self.simulations:

@@ -169,7 +169,6 @@ class Lattice:
                     line = raw_line.split('#', 1)[0].strip()
                     if line:
                         content.append(line)
-                # end dja change
                 
             for i,line in enumerate(content):
                 ls = line.split()

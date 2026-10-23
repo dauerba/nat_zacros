@@ -35,9 +35,6 @@ class State:
         Names of surface species
     surf_species_dent : list
         Denticity of each surface species
-    ads_ids : ndarray, shape (N,)
-        Adsorbate identifier at each site. Sites belonging to the same
-        multidentate adsorbate share the same positive ID; 0 means empty.
     occupation : ndarray, shape (N,)
         Surface-species code at each site (0 = empty, 1..n = entries in
         ``surf_species_names`` plus one)
@@ -65,7 +62,7 @@ class State:
     """
     
 
-    def __init__(self, lattice, metadata, dirname=None):
+    def __init__(self, lattice, input_pars, traj_path=None):
         """
         Initialize state object.
         
@@ -76,119 +73,25 @@ class State:
         dirname : str or Path, optional
             Directory containing Zacros output. 
         """
-        self.dir = str(dirname) if dirname is not None else None
+
+        self.traj_path = Path(traj_path) if traj_path is not None else None
 
         # Store reference to lattice
         self.lattice = lattice
 
-        # Get metadata and check that mandatory keys are present
-        self.metadata = metadata
+        # Set attributes
+        self.n_gas_species = int(input_pars['n_gas_species'][0])
+        self.gas_species_names = input_pars['gas_specs_names']
+        self.n_surf_species = int(input_pars['n_surf_species'][0])
+        self.surf_species_names = dict(zip(input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
+        self.surf_species_names['*'] = 0
+        self.surf_species_dent = dict(zip(input_pars['surf_specs_names'], [int(d) for d in input_pars['surf_specs_dent']]))
+        self.surf_species_dent['*'] = 1
 
-        self._mandatory_keys = [
-            'surf_species_names'
-            ]
-
-        args_ok = True
-        for key in self._mandatory_keys:
-            if key not in self.metadata:
-                print(f" {key} undefined.")
-                args_ok = False
-
-        if not args_ok:
-            self.is_valid = False
-            print('  Warning: State object created without sufficient metadata.')
-
-        # default is no species
-        self.gas_species_names = []
-        self.n_gas_species = len(self.gas_species_names)
-        self.n_surf_species = len(self.metadata['surf_species_names'])
-
-        self.surf_species_names = dict(zip(self.metadata['surf_species_names'],range(self.n_surf_species)))
-        self.surf_species_dent = []
-
-        self.gas_species_change = []
-
-        # Arrays defining the adsorbed species on the lattice
-        self.ads_ids =    np.zeros(self.lattice.n_sites, dtype=int)
+        # Arrays of gas species and adsorbed species on the lattice
+        self.gas_species_change = np.zeros(self.n_gas_species, dtype=int)
         self.occupation = np.zeros(self.lattice.n_sites, dtype=int)
         self.dentation =  np.zeros(self.lattice.n_sites, dtype=int)
-
-
-    def create_from_deltas(self, deltas):
-        """
-        Create a new state by applying reaction deltas to the current state.
-        
-        Parameters
-        ----------
-        deltas : a tuple or a list of tuples
-            Each tuple contains (reaction_name, sites_inv) representing
-            the reaction and the involved sites that change the state.
-            
-        Returns
-        -------
-        State or None
-            New state after applying the supplied deltas, or ``None`` if one of
-            the reaction names is not recognized so no changes are defined.
-
-        
-        """
-
-        # Initialize a new state object with the same lattice and metadata
-        new_state = State(self.lattice, self.metadata, self.dir)
-
-        # Initialize arrays for the new state
-        new_state.ads_ids = np.copy(self.ads_ids)
-        new_state.occupation = np.copy(self.occupation)
-        new_state.dentation = np.copy(self.dentation)
-
-        # Apply each delta to update the state
-        if isinstance(deltas, tuple):
-            deltas = [deltas]
-        for reaction_name, sites_inv in deltas:
-
-            if 'hopping' in reaction_name:
-
-                dent = len(sites_inv) // 2
-                for i in range(dent):
-                    if 'rev' in reaction_name:
-                        idx_p = sites_inv[i] - 1
-                        idx_r = sites_inv[-i-1] - 1
-                    else:
-                        idx_r = sites_inv[i] - 1
-                        idx_p = sites_inv[-i-1] - 1
-
-
-                    # save reactant data
-                    occ = new_state.occupation[idx_r]
-                    ads = new_state.ads_ids[idx_r]
-
-                    # Remove reactant from the lattice
-                    new_state.occupation[idx_r] = 0
-                    new_state.dentation[ idx_r] = 0
-                    new_state.ads_ids[   idx_r] = 0
-
-                    # Put product on the lattice
-                    new_state.occupation[idx_p] = occ
-                    new_state.dentation[ idx_p] = dent
-                    new_state.ads_ids[   idx_p] = ads
-
-            elif 'desorption' in reaction_name:
-
-                dent = len(sites_inv)
-                for i in range(dent):
-                    idx_r = sites_inv[i] - 1
-
-                    # Remove reactant from the lattice
-                    new_state.occupation[idx_r] = 0
-                    new_state.dentation[ idx_r] = 0
-                    new_state.ads_ids[   idx_r] = 0
-
-            else:
-                print(f"Reaction {reaction_name} not recognized. No changes made to state.")
-                return None
-
-        return new_state
-
 
 
     def load(self, idx=0, verbose=False):
@@ -220,12 +123,11 @@ class State:
             nsites = self.lattice.n_sites
             for site in range(nsites):
                 parts = content[7 + idx*(nsites+1) + site].split()
-                self.ads_ids[site]    = int(parts[1])
                 self.occupation[site] = int(parts[2])
                 self.dentation[site]  = int(parts[3])
             if self.n_gas_species > 0:
                 self.gas_species_change = \
-                    [int(s) for s in content[7 + idx*(nsites+1) + nsites].split()]
+                    np.array([int(s) for s in content[7 + idx*(nsites+1) + nsites].split()])
         except Exception as e:
             print(f'Error loading a state from trajectory {str(self.dir)}: {e}')
     
@@ -271,34 +173,6 @@ class State:
 
                 
         return acc13_list, acc2_list
-
-    def get_ads_site(self, idx):
-        """
-        Get the site of an adsorbate idx
-        """
-        return (self.ads_ids == idx).argmax()
-
-    def get_ads_ids(self, species):
-        """
-        Get adsorbate IDs for all sites occupied by a specific species.
-        
-        Parameters
-        ----------
-        species : str
-            Name of the surface species.
-            
-        Returns
-        -------
-        ndarray
-            Array of adsorbate IDs at sites occupied by the specified species.
-            Returns an empty array if no sites are occupied by this species.
-            
-        Notes
-        -----
-        Zacros uses 1-based indexing for species IDs, so +1 is added when
-        converting from the 0-based Python indexing of surf_species_names.
-        """
-        return self.ads_ids[self.occupation == self.surf_species_names[species] + 1]
 
     def get_clusters(self, cutoff, eps=1e-4):
         """
@@ -683,18 +557,6 @@ class State:
         return self.lattice.coordinates[mask]
 
 
-    def n_ads(self):
-        """
-        Get the number of distinct adsorbates on the surface.
-        
-        Returns
-        -------
-        int
-            Number of unique positive adsorbate IDs present in the current
-            state.
-        """
-        return len(np.unique(self.ads_ids[self.ads_ids > 0]))
-
     def plot(self, ax=None, scaling=1, ads_scaling=1.2, markers=None, colors=None, legend=True,
                     show_axis = True):
         """Plot the state of the lattice.
@@ -772,5 +634,5 @@ class State:
 
     def __repr__(self):
         """String representation of State class"""
-        occ = [ (k, len(self.get_occupied_sites(k))) for k in self.surf_species_names.keys()]
+        occ = [ (k, len(self.get_occupied_sites(k))) for k in self.surf_species_names.keys() if k != '*']
         return f"State(nsites={self.lattice.n_sites}, adsorbates={occ})"

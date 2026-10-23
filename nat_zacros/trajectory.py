@@ -6,13 +6,11 @@ sequences of adsorbate configurations from Zacros KMC simulations.
 """
 
 import pickle
-from turtle import st
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-import copy
-
+from .lattice import Lattice
 from .state import State
 
 class Trajectory:
@@ -46,7 +44,7 @@ class Trajectory:
         Pickle file used to cache parsed ``history_output`` snapshots.
     """
     
-    def __init__(self, dir, lattice, metadata, cache_file='traj.pkl'):
+    def __init__(self, traj_path, lattice=None, input_pars=None, reactions=None, cache_file='traj.pkl', verbose=False):
         """
         Initialize a trajectory container.
         
@@ -62,35 +60,177 @@ class Trajectory:
             File name of the pickle cache stored inside ``dir``.
         """
 
-        self.dir = Path(dir)
-        self.lattice = lattice
-        self.states = []
+        self.traj_path = Path(traj_path)
+
+        # Load lattice from lattice input and output files if necessary
+        if lattice is None:
+            self.lattice = Lattice(self.traj_path)
+        else:
+            self.lattice = lattice
+
+        # Parse input files if necessary
+        if input_pars is None:
+            self.input_pars = self._get_input_pars(verbose=verbose)
+        else:
+            self.input_pars = input_pars
+
+        self.n_gas_species = int(input_pars['n_gas_species'][0])
+        self.gas_species_names = input_pars['gas_specs_names']
+        self.n_surf_species = int(input_pars['n_surf_species'][0])
+        self.surf_species_names = dict(zip(input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
+        self.surf_species_names['*'] = 0
+        self.surf_species_dent = dict(zip(input_pars['surf_specs_names'], [int(d) for d in input_pars['surf_specs_dent']]))
+        self.surf_species_dent['*'] = 1
+
+        # Create the reaction mechanism attribute
+        self.reactions = dict()
+
+        if reactions is None:
+            reactions = self._parse_reaction_mechanism(verbose=verbose)
+
+        # Converts species names to the corresponding indices
+        # and dentations to int in the reaction mechanism dict
+        # provided it was not done previously
+        if isinstance(next(iter(reactions.values())), np.ndarray):
+            self.reactions = reactions
+        else:
+            for reaction in reactions:
+                self.reactions[reaction] = np.array([[self.surf_species_names[sp_name], dent] for sp_name, dent in reactions[reaction]], 
+                                                    dtype=int)
+
         self.initial_state = None
-        self.state_deltas = []
+        self.delta_states = []
+        self.gas_species_changes = []
         self.times = []
         self.energies = []
-        self.cache_file = self.dir / cache_file
+        self.cache_file = self.traj_path / cache_file
 
-        self.metadata = metadata
 
-        self._mandatory_keys = [
-            'lattice_dimensions', 
-            'surf_species_names',
-            'n_adsorbates', 
-            'temperature', 
-            'energy_terms'
-            ]
+    def create_states(self, idx):
+        """
+        Create a new state by applying reaction deltas to the current state.
+        
+        Parameters
+        ----------
+        deltas : a tuple or a list of tuples
+            Each tuple contains (reaction_name, sites_inv) representing
+            the reaction and the involved sites that change the state.
+            
+        Returns
+        -------
+        State or None
+            New state after applying the supplied deltas, or ``None`` if one of
+            the reaction names is not recognized so no changes are defined.
 
-        args_ok = True
-        for key in self._mandatory_keys:
-            if key not in self.metadata:
-                print(f" {key} undefined.")
-                args_ok = False
+        
+        """
 
-        if not args_ok:
+        if isinstance(idx, int):
+            start = None
+            stop = idx + 1
+            step  = None
+        elif isinstance(idx, slice):
+            start = idx.start or 0          
+            stop  = idx.stop  or len(self)
+            step  = idx.step  or 1
+            if start == 0:
+                states = [ self.initial_state ]
+            else:
+                states = []
+        else:
+            raise TypeError("Invalid index type. Must be int or slice.")
+
+        # Initialize a new state object with the same lattice and metadata
+        new_state = State(self.lattice, self.input_pars, self.traj_path)
+
+        # Initialize arrays for the new state
+        new_state.occupation = np.copy(self.initial_state.occupation)
+        new_state.dentation  = np.copy(self.initial_state.dentation)
+        new_state.gas_species_change = np.copy(self.initial_state.gas_species_change)
+
+        # Loop over deltas up to the final delta
+        for i in range(len(self.delta_states)):
+            sites_inv = self.delta_states[i][0,:]
+            new_state.occupation[sites_inv] = self.delta_states[i][1]
+            new_state.dentation[sites_inv]  = self.delta_states[i][2]
+            new_state.gas_species_change = self.gas_species_changes[i]
+            if i + 1 >= start and (i + 1) % step == 0:
+                # Initialize a new state object with the same lattice and metadata
+                state_2_save = State(self.lattice, self.input_pars, self.traj_path)
+                # Copy arrays from the new state
+                state_2_save.occupation = np.copy(new_state.occupation)
+                state_2_save.dentation  = np.copy(new_state.dentation)
+                state_2_save.gas_species_change = np.copy(new_state.gas_species_change)
+                states.append(state_2_save)
+
+        if isinstance(idx, int):
+            return states[-1]
+        else:
+            return states
+
+
+    def _get_input_pars(self, verbose=False):
+
+        # Load simulation_input.dat as a dict
+        # accounting for comments marked with '#'
+        # assuming the first entry to be a key
+
+        input_pars = dict()
+        try:
+            with open(self.traj_path / 'simulation_input.dat') as f:
+                for line in f:
+                    lsplit = line.partition('#')[0].strip().split()
+                    if lsplit:
+                        input_pars[lsplit[0]] = lsplit[1:]
+        except:
             self.is_valid = False
-            print('Not enough metadata for a valid simulation.')
+            print(f"Cannot get simulation input parameters from simulation_input.dat")
 
+        if verbose:
+            print(f'  Input parameters:\n')
+            print(input_pars)
+
+        return input_pars
+        
+    def _parse_reaction_mechanism(self, verbose=False):
+        # Load mechanism_input.dat as a dict
+        # with the reaction names as keys
+        # and final state as values
+
+        reaction_mechanism = dict()
+        try:
+            with open(self.traj_path /'mechanism_input.dat') as f:
+                content = f.readlines()
+                reaction_name_rev = None # Used to account for reversibility
+                
+                for iline, line in enumerate(content):
+                    lsplit = line.partition('#')[0].strip().split()
+                    if lsplit:
+                        # Irreversible reaction
+                        if lsplit[0] == 'step':
+                            reaction_name = lsplit[1]
+                        # Reversible reaction
+                        if lsplit[0] == 'reversible_step':
+                            reaction_name     = lsplit[1] + '_fwd'
+                            reaction_name_rev = lsplit[1] + '_rev'
+                        if lsplit[0] == 'sites':
+                            n_sites = int(lsplit[1])
+                        if lsplit[0] == 'initial' and reaction_name_rev is not None:
+                                reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
+                                reaction_mechanism[reaction_name_rev] = reaction
+                        if lsplit[0] == 'final':
+                            reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
+                            reaction_mechanism[reaction_name] = reaction
+                            reaction_name_rev = None
+        except:
+            self.is_valid = False
+            print(f"Cannot get reaction mechanism from mechanism_input.dat")
+
+        if verbose:
+            print(f'  Input parameters:\n')
+            print(reaction_mechanism)
+
+        return reaction_mechanism
 
 
     def get_energy_vs_time(self):
@@ -107,7 +247,7 @@ class Trajectory:
         return self.times, self.energies
       
                 
-    def load(self, cache=True, zfile='history_output', verbose=False):
+    def load(self, cache=True, verbose=False):
         """
         Load trajectory data from Zacros output files.
 
@@ -139,59 +279,136 @@ class Trajectory:
         """
 
 
-        # Initialize the initial state object
-        st = State(self.lattice, self.metadata, dirname=self.dir)
+        if verbose:
+            print(f'  Loading trajectory {str(self.traj_path)}...')
 
-        # Get the initial state from 'general_output.txt' if available
-        try:
-            with open(self.dir / 'general_output.txt', 'r') as f: 
+        # Try loading from cache
+        if cache:
+            if self.cache_file.exists():
+                with open(self.cache_file, 'rb') as f:
+                    self.initial_state, self.delta_states, self.gas_species_changes, self.times, self.energies = pickle.load(f)
+                if verbose:
+                    size_mb = self.cache_file.stat().st_size / 1024**2
+                    print(f"    Loaded trajectory {self.traj_path.name} with {len(self.delta_states+1)} states from cache ({size_mb:.1f} MB).")
+                return
 
+        # Auto-selection of the trajectory source
+
+        # Flag indicating succesful loading
+        is_loaded = False
+
+        if self.input_pars['event_report'][0] == 'on': # Implies that the source could be 'general_output.txt'
+
+            if verbose:
+                print(f'   Trying to load from general_output.txt...')
+
+            # Try to load states from from 'general_output.txt'
+            try:
+                with open(self.traj_path / 'general_output.txt', 'r') as f: 
+                    content = f.readlines()
+
+                # Initialize the initial state object
+                st = State(self.lattice, self.input_pars, traj_path=self.traj_path)
+
+                # Get the initial state
                 ads_counter = 0
-                for line in f:
-
-                    if 'Surface species dentation' in line:
-                        dent = [int(str) for str in line.split()[3:]]
+                for line in content:
 
                     if 'adparticle to be seeded on site' in line:
                         l_split = line.split()
                         sp_idx = st.surf_species_names[ l_split[0] ]
-                        ads_counter += 1
-
-                        sites = [int(s) for s in l_split[-dent[sp_idx]:]]
+                        dent = st.surf_species_dent[ l_split[0] ]
+                        sites = [int(s) for s in l_split[-dent:]]
                         for site in sites:
                             # Account for Zacros numbering of sites and species
-                            st.occupation[site-1] = sp_idx + 1
-                            st.dentation[site-1] = dent[sp_idx]
-                            st.ads_ids[site-1] = ads_counter
-                
+                            st.occupation[site-1] = sp_idx
+                            st.dentation[site-1]  = dent
+
+                        ads_counter += 1
+
                     if 'Total adlayer energy:' in line:
                         en = float(line.split()[-1])
                         # We need the initial state only
                         break
-                    
-            self.initial_state = st
 
-        except FileNotFoundError:
-            print(f"{str(self.dir)}: Initial state not found.")
+                if ads_counter > 0:
+    
+                    # Initial state read in successfully
+                    self.initial_state = st
 
+                    # Proceed with reading kmc events
 
-        if zfile=='history_output':
+                    # Get number of lattice sites
+                    nsites = self.lattice.n_sites
 
-            # Try loading from cache
-            if cache:
-                if self.cache_file.exists():
-                    with open(self.cache_file, 'rb') as f:
-                        self.states, self.times, self.energies = pickle.load(f)
+                    # Start from the end to get number of states
+                    for line in reversed(content):
+
+                        if 'Events occurred' in line:
+                            # Get the number of states
+                            n_states = int(line.split()[-1]) + 1
+                            break
+
+                    # Allocate arrays
+                    self.times = np.empty(n_states, dtype=float)
+                    self.energies = np.empty(n_states, dtype=float)
+                    self.gas_species_changes = np.empty((n_states - 1, self.n_gas_species), dtype=int)
+
+                    # Save initial values for time and energy
+                    self.times[0]    = 0.0
+                    self.energies[0] = en
+
+                    # Find the 1st line with kmc step
+                    for iline, line in enumerate(content):
+                        if 'KMC step' in line: break                        
+
+                    # Loop to get states forming the trajectory
+                    for k in range(1, n_states):
+
+                        # Get the state info:
+                        # kmc step
+                        step = int(line.split()[-1])
+                        # reaction
+                        reaction_name = content[iline+1].split()[-1]
+                        # time
+                        time = float(content[iline+2].split()[-1])
+                        # sites involved
+                        sites_inv = [ int(s) for s in content[iline+3].split()[2:] ]
+                        # change of the energy
+                        delta_en = float(content[iline+7].split()[-1])
+
+                        # Shift the line index to the next KMC step record
+                        iline += 9
+                        self.times[k] = time
+                        self.energies[k] = delta_en + self.energies[k-1]
+                        # Get the changes and append them to deltas
+                        occs  = np.array(self.reactions[reaction_name][:,0], dtype=int)
+                        dents = np.array(self.reactions[reaction_name][:,1], dtype=int)
+                        gas   = np.array(self.reactions[reaction_name][:,1], dtype=int)
+
+                        # Append changes to deltas
+                        self.delta_states.append( np.array([sites_inv, occs, dents]) )
+                        if n_gas_species > 0:
+                            print(self.delta_states)
+                            self.gas_species_changes[k-1,:] = [int(s) for s in content[pos + 1 + nsites].split()]
+
+                    is_loaded = True
+
+                else:
                     if verbose:
-                        size_mb = self.cache_file.stat().st_size / 1024**2
-                        print(f"Loaded trajectory {self.dir.name} with {len(self.states)} states from cache ({size_mb:.1f} MB).")
-                    return
+                        print(f'      Failed to load the initial state.')
+
+            except:
+                if verbose:
+                    print(f"      Loading failed.")
+
+        else: # event_report off: loading from history_output.txt
 
             try:
                 # Single-pass streaming parse (fast)
                 nsites = self.lattice.n_sites
                 # Read in a trajectory from history_output.txt
-                with open(self.dir / 'history_output.txt', 'r') as f: 
+                with open(self.traj_path / 'history_output.txt', 'r') as f: 
                     content = f.readlines()
 
                 # Get the number of gas species
@@ -200,31 +417,24 @@ class Trajectory:
                 # Count total number of states in trajectory
                 n_states = sum(line.lstrip().startswith('configuration') for line in content)
 
-                if n_states == 0: # history_output.txt does not have configurations
-                    n_states = 1
-                    st = State(self.lattice, self.metadata, dirname=self.dir)
+                if n_states > 0:
 
-                    self.times = np.zeros(n_states, dtype=float)
-                    self.energies = np.zeros(n_states, dtype=float)
-                    self.states = [st] * n_states
-
-                else:
-
+                    # Allocate memory for class' attributes
                     self.times = np.empty(n_states, dtype=float)
                     self.energies = np.empty(n_states, dtype=float)
-                    self.states = [None] * n_states
+                    self.gas_species_changes = np.empty((n_states - 1, n_gas_species), dtype=int)
+
+                    # Get the size of the configuration block
 
                     # Find the first configuration line
-                    pos = 0
-                    while pos < len(content) and not content[pos].lstrip().startswith('configuration'):
-                        pos += 1
-
+                    pos1 = 0
+                    while pos1 < len(content) and not content[pos1].lstrip().startswith('configuration'):
+                        pos1 += 1
                     # Find the second configuration line to determine block size
-                    pos2 = pos + 1
+                    pos2 = pos1 + 1
                     while pos2 < len(content) and not content[pos2].lstrip().startswith('configuration'):
                         pos2 += 1
-                    
-                    block_size = pos2 - pos  # Lines per configuration block
+                    block_size = pos2 - pos1  # Lines per configuration block
                     # Check consistency
                     if n_gas_species == 0:
                         expected_block_size = 1 + nsites  # 1 header + nsites data
@@ -233,9 +443,41 @@ class Trajectory:
                     if block_size != expected_block_size:
                         raise ValueError(f'block size: {block_size}, expected {expected_block_size}.')
 
-                    for k in range(n_states):
+                    # Get initial state
+                    line = content[pos1]
+                    try:
+                        parts = line.split()
+                        time = float(parts[3])
+                        energy = float(parts[5])
+                    except (ValueError, IndexError):
+                        raise ValueError(f'{str(self.traj_path.name)}: Failed to parse line: {line.strip()}')
 
-                        pos = 6 + k * block_size
+                    st = State(self.lattice, self.input_pars, traj_path=self.traj_path)
+
+                    # Get the 1st configuration as initial state
+                    for site in range(nsites):
+                        site_line = content[pos1 + 1 + site]
+                        p = site_line.split()
+                        st.occupation[site] = int(p[2])
+                        st.dentation[site] = int(p[3])
+                    
+                    if n_gas_species > 0:
+                        st.gas_species_change = [int(s) for s in content[pos1 + 1 + nsites].split()]
+
+                    self.initial_state = st
+
+                    self.times[0]    = time
+                    self.energies[0] = energy
+
+                    # Create arrays for state propagation
+                    occupation_prev = np.copy(self.initial_state.occupation)
+                    occupation      = np.empty_like(occupation_prev)
+                    dentation       = np.empty_like(occupation)
+
+                    # Get the rest of trajectory
+                    for k in range(1, n_states):
+
+                        pos = pos1 + k * block_size
                         line = content[pos]
 
                         try:
@@ -243,94 +485,39 @@ class Trajectory:
                             time = float(parts[3])
                             energy = float(parts[5])
                         except (ValueError, IndexError):
-                            raise ValueError(f'{str(self.dir.name)}: Failed to parse line: {line.strip()}')
-
-                        st = State(self.lattice, self.metadata, dirname=self.dir)
+                            raise ValueError(f'{str(self.traj_path.name)}: Failed to parse line: {line.strip()}')
 
                         for site in range(nsites):
                             site_line = content[pos + 1 + site]
                             p = site_line.split()
-                            st.ads_ids[site] = int(p[1])
-                            st.occupation[site] = int(p[2])
-                            st.dentation[site] = int(p[3])
-                        
-                        if n_gas_species > 1:
-                            st.gas_species_change = [int(s) for s in content[pos + 1 + nsites].split()]
+                            occupation[site] = int(p[2])
+                            dentation[site] = int(p[3])
 
-                        self.states[k] = st
+                        # Get sites involved into a change and append changes to deltas
+                        sites_inv = np.flatnonzero(occupation_prev == occupation)
+                        self.delta_states.append( np.array([sites_inv, occupation[sites_inv], dentation[sites_inv]]) )
+                        if n_gas_species > 0:
+                            self.gas_species_changes[k-1,:] = [int(s) for s in content[pos + 1 + nsites].split()]
+                        # Propagate occupation array
+                        occupation_prev[sites_inv] = occupation[sites_inv]
+
                         self.times[k] = time
                         self.energies[k] = energy
+
+                is_loaded = True
 
                 # Save to cache
                 if cache:
                     with open(self.cache_file, 'wb') as f:
-                        pickle.dump([self.states, self.times, self.energies], f)
+                        pickle.dump([self.initial_state, self.delta_states, self.gas_species_changes, self.times, self.energies], f)
                         size_mb = self.cache_file.stat().st_size / 1024**2
 
                 if verbose:
-                    print(f"Loaded {f' and cached ({size_mb:.1f} MB)' if cache else ''} trajectory {self.dir.name} with {len(self.states)} states.")
+                    print(f"Loaded {f' and cached ({size_mb:.1f} MB)' if cache else ''} trajectory {self.traj_path.name} with {len(self)} states.")
 
             except Exception as e:
-                print(f'Error loading trajectory from {str(self.dir)}: {e}')
+                print(f'Error loading trajectory from {str(self.traj_path)}: {e}')
         
-        elif zfile=='general_output':
-            
-            try:
-                # Get number of lattice sites
-                nsites = self.lattice.n_sites
-                # Read in a trajectory from general_output.txt
-                with open(self.dir / f'{zfile}.txt', 'r') as f: 
-                    content = f.readlines()
-
-                # Start from the end to get number of states
-                for line in reversed(content):
-
-                    if 'Events occurred' in line:
-                        # Get the number of states
-                        n_states = int(line.split()[-1])
-                        break
-
-                # Allocate arrays
-                self.times = np.empty(n_states + 1, dtype=float)
-                self.energies = np.empty(n_states + 1, dtype=float)
-                self.state_deltas = [None] * n_states
-
-                # Save initial values for time and energy
-                self.times[0]    = 0.0
-                self.energies[0] = en
-
-                # Find the 1st line with kmc step
-                for iline, line in enumerate(content):
-                    if 'KMC step' in line: break                        
-
-                # Loop to get states forming the trajectory
-                for k in range(n_states):
-
-                    # Get the state info:
-                    # kmc step
-                    step = int(line.split()[-1])
-                    # reaction
-                    reaction_name = content[iline+1].split()[-1]
-                    # time
-                    time = float(content[iline+2].split()[-1])
-                    # sites involved
-                    sites_inv = [ int(s) for s in content[iline+3].split()[2:] ]
-                    # change of the energy
-                    delta_en = float(content[iline+7].split()[-1])
-
-                    # Shift the line index to the next KMC step record
-                    iline += 9
-
-                    self.times[k+1] = time
-                    self.energies[k+1] = delta_en + self.energies[k]
-                    self.state_deltas[k] = (reaction_name, sites_inv)
-
-            except Exception as e:
-                print(f'Error loading trajectory from {str(self.dir)}: {e}')
-
-        else:
-            print(f'Error loading trajectory: output file {zfile} unknown.')
-
 
 
     def unload(self, verbose=False):
@@ -350,7 +537,7 @@ class Trajectory:
         self.times = np.array([])
         self.energies = np.array([])
         if verbose:
-            print(f" {self.dir.name} with {n_states} states unloaded.")
+            print(f" {self.traj_path.name} with {n_states} states unloaded.")
 
 
     def clear_cache(self, verbose=False):
@@ -370,7 +557,7 @@ class Trajectory:
         if self.cache_file.exists():
             self.cache_file.unlink()
             if verbose:
-                print(f"Cleared cache for trajectory {self.dir.name}")
+                print(f"Cleared cache for trajectory {self.traj_path.name}")
             return 1
         return 0
 
@@ -696,10 +883,11 @@ class Trajectory:
         """
         Number of configurations in trajectory.
 
-        Returns the number of loaded state snapshots stored in ``self.states``.
+        Returns the number of loaded states
         """
-        return len(self.states) if self.initial_state is None else len(self.state_deltas) + 1
+        return len(self.times)
         
+
     def __getitem__(self, idx):
         """
         Access states by index.
@@ -720,32 +908,8 @@ class Trajectory:
         >>> traj[10:20:2]    # Every other state from 10 to 20
         """
 
-        if self.initial_state is None:
-            return self.states[idx]
+        return self.create_states(idx)
 
-        else:
-            if isinstance(idx, int):
-
-                if idx == 0:
-                    return self.initial_state
-                
-                else:
-                    return self.initial_state.create_from_deltas(self.state_deltas[:idx])
-
-            elif isinstance(idx, slice):
-                start = idx.start or 0          
-                stop = idx.stop or len(self)
-                step = idx.step or 1
-
-                states = [ self.initial_state.create_from_deltas(self.state_deltas[:start]) ]
-
-                for i in range(start, stop-step, step):
-                        states.append( states[-1].create_from_deltas(self.state_deltas[i:i+step]) )
-
-                return states
-
-            else:
-                raise TypeError("Invalid index type. Must be int or slice.")
 
     def __repr__(self):
         """String representation of Trajectory"""

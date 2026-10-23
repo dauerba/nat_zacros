@@ -6,7 +6,7 @@ collections of trajectories from a single Zacros simulation.
 """
 
 import numpy as np
-import warnings
+import tarfile
 from pathlib import Path
 from .lattice import Lattice
 from .trajectory import Trajectory
@@ -58,7 +58,7 @@ class Simulation:
     """
 
 
-    def __init__(self, dir, metadata, traj_dir_pfx='traj', results_dir=None, lattice=None):
+    def __init__(self, sim_path, traj_dirname_pfx='traj', results_path=None, verbose=False):
         """
         Initialize a simulation.
         
@@ -78,63 +78,160 @@ class Simulation:
             Shared lattice object (default: None).
         """
 
-        self.dir = Path(dir)
-        self.results_dir = results_dir if results_dir is not None else self.dir
+        self.sim_path = Path(sim_path)
+        self.results_path = results_path if results_path is not None else self.sim_path
         self.is_valid = True  # Assume the simulation is valid initially
         self.is_loaded = False
-        self.traj_dir_pfx = traj_dir_pfx
-        self.lattice = lattice
+        self.traj_dirname_pfx = traj_dirname_pfx
         self.trajectories = dict()
-
-        self.metadata = metadata
-
-        self._mandatory_keys = [
-            'lattice_dimensions', 
-            'surf_species_names',
-            'n_adsorbates', 
-            'temperature', 
-            'energy_terms'
-            ]
-
-        args_ok = True
-        for key in self._mandatory_keys:
-            if key not in self.metadata:
-                print(f" {key} undefined.")
-                args_ok = False
-
-        if not args_ok:
-            self.is_valid = False
-            print('Not enough metadata for a valid simulation.')
-
-        # Validate simulation directory exists
-        if not self.dir.exists():
-            print(f"Simulation directory {self.dir} does not exist.")
-            self.is_valid = False
-            
-        else:
         
-            # Auto-detect trajectory directories
+        # Try to untar simulation if necessary
+        if not self.sim_path.exists():
+            tgz_file = self.sim_path.with_suffix('.tgz')
+            print(f"Extracting a simulation from {tgz_file.as_posix()}...")
+            try:
+                with tarfile.open(tgz_file, "r:gz") as tar:
+                    tar.extractall(path=self.sim_path.parent)
+            except Exception as e:
+                print(f"   Error extracting simulation {self.sim_path}: {e}")
+                self.is_valid = False
+            else:
+                print(f"   Extraction complete.")
+
+        # Check existance of simulation directory, input files and trajectory directories in turn
+        if not self.sim_path.exists():
+            print(f"Simulation {self.sim_path} does not exist.")
+            self.is_valid = False
+        else:
+            # Parse Simulation input
+            self.input_pars = self._get_input_pars(verbose=verbose)
+
+            self.n_surf_species = int(self.input_pars['n_surf_species'][0])
+            self.surf_species_names = dict(zip(self.input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
+            self.surf_species_names['*'] = 0
+
+            # Get initial seed from state_input
+            self.nads0 = self._get_initial_nads() if len(self._get_initial_nads()) > 0 else dict(zip(self.input_pars['surf_specs_names'], [0] * self.n_surf_species))
+
+            # Parse reaction mechanism input
+            self.reactions = self._parse_reaction_mechanism(verbose=verbose)
+
+            # Converts species names to the corresponding indices
+            # and dentations to int in the reaction mechanism dict
+            for reaction in self.reactions:
+                self.reactions[reaction] = np.array([[self.surf_species_names[sp_name], dent] for sp_name, dent in self.reactions[reaction]], 
+                                                    dtype=int)
+
+            # Detect trajectory directories
             self.traj_dirs = sorted([
-                d for d in self.dir.iterdir() 
-                if d.is_dir() and d.name.startswith(self.traj_dir_pfx + '_')
+                d for d in self.sim_path.iterdir() 
+                if d.is_dir() and d.name.startswith(self.traj_dirname_pfx + '_')
             ])
         
             if len(self.traj_dirs) == 0:
-                print(f"No trajectory directories ({self.traj_dir_pfx}_*) found in {self.dir}")
+                print(f"No trajectory directories ({self.traj_dirname_pfx}_*) found in {self.sim_path}")
                 self.is_valid = False
-            
             else:
-                # Use passed lattice if available, otherwise create from first trajectory
-                if self.lattice is None:
-                    self.lattice = Lattice(self.traj_dirs[0])
+                self.lattice = Lattice(self.traj_dirs[0])
                 
                 if not self.lattice.is_defined:
-                    print(f"Cannot load lattice data for simulation {self.dir.name}")
+                    print(f"Cannot load lattice data for simulation {self.sim_path.name}")
                     self.is_valid = False
                 else:
                     # Keep trajectories keyed by directory name for stable lookup.
                     for tdir in self.traj_dirs:
-                        self.trajectories[tdir.name] = Trajectory(tdir, self.lattice, self.metadata)
+                        self.trajectories[tdir.name] = Trajectory(tdir, lattice=self.lattice, 
+                                                                        input_pars=self.input_pars, reactions=self.reactions, verbose=verbose)
+
+
+    def _get_input_pars(self, verbose=False):
+
+        # Load simulation_input.dat as a dict
+        # accounting for comments marked with '#'
+        # assuming the first entry to be a key
+        data = dict()
+        try:
+            with open(self.sim_path / 'simulation_input.dat') as f:
+                for line in f:
+                    lsplit = line.partition('#')[0].strip().split()
+                    if lsplit:
+                        data[lsplit[0]] = lsplit[1:]
+        except:
+            self.is_valid = False
+            print(f"Cannot get simulation input parameters from simulation_input.dat")
+
+        if verbose:
+            print(f'  Input parameters:\n')
+            print(data)
+
+        return data
+        
+    def _parse_reaction_mechanism(self, verbose=False):
+        # Load mechanism_input.dat as a dict
+        # with the reaction names as keys
+        # and final state as values
+
+        data = dict()
+        try:
+            with open(self.sim_path /'mechanism_input.dat') as f:
+                content = f.readlines()
+                reaction_name_rev = None # Used to account for reversibility
+                for iline, line in enumerate(content):
+                    lsplit = line.partition('#')[0].strip().split()
+                    if lsplit:
+                        # Irreversible reaction
+                        if lsplit[0] == 'step':
+                            reaction_name = lsplit[1]
+                        # Reversible reaction
+                        if lsplit[0] == 'reversible_step':
+                            reaction_name     = lsplit[1] + '_fwd'
+                            reaction_name_rev = lsplit[1] + '_rev'
+                        if lsplit[0] == 'sites':
+                            n_sites = int(lsplit[1])
+                        if lsplit[0] == 'initial' and reaction_name_rev is not None:
+                                reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
+                                data[reaction_name_rev] = reaction
+                        if lsplit[0] == 'final':
+                            reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
+                            data[reaction_name] = reaction
+                            reaction_name_rev = None
+        except:
+            self.is_valid = False
+            print(f"Cannot get reaction mechanism from mechanism_input.dat")
+
+        if verbose:
+            print(f'  Input parameters:\n')
+            print(data)
+
+        return data
+
+    def _get_initial_nads(self, verbose=False):
+
+        # Load state_input.dat 
+        # accounting for comments marked with '#'
+        nads = dict()
+        try:
+            with open(self.sim_path / 'state_input.dat') as f:
+                for line in f:
+                    lsplit = line.partition('#')[0].strip().split()
+                    if lsplit:
+                        if lsplit[0] == 'seed_on_sites':
+                            sp_name = lsplit[1]
+                            nads[sp_name] = nads[sp_name] + 1 if sp_name in nads.keys() else 1
+                        if lsplit[0] == 'seed_multiple':
+                            sp_name = lsplit[1]
+                            n = int(lsplit[2])
+                            nads[sp_name] = nads[sp_name] + n if sp_name in nads.keys() else n
+        except:
+            if verbose:
+                print(f"  Cannot get seeding info from state_input.dat")
+
+        if verbose:
+            print(f'  Number of adsorbates seeded:\n')
+            print(nads)
+
+        return nads
+        
 
     def _parse_results_header(self, file_path, verbose=False):
         """
@@ -189,7 +286,7 @@ class Simulation:
             return {}
 
 
-    def load(self, cache=True, zfile='history_output', verbose=False):
+    def load(self, cache=True, verbose=False):
         """
         Load all trajectories in this simulation.
 
@@ -206,24 +303,18 @@ class Simulation:
             If True, print detailed loading information.
         """
 
-        # Determine cache file path and extension
-        if zfile=='history_output':
-            print(f"Loading simulation {self.dir.name} with caching {'enabled' if cache else 'disabled'}...")
-        if zfile=='general_output':
-            print(f"Loading simulation {self.dir.name}...")
-
-
         # Load trajectories from files
         if verbose:
             print(f"Loading {len(self.traj_dirs)} trajectories...")
 
         for traj in self.trajectories.values():
-            traj.load(cache=cache, zfile=zfile, verbose=verbose)
+            print(f'Simulation:\n {traj}')
+            traj.load(cache=cache, verbose=verbose)
         self.is_loaded = True
 
         if verbose:
             print(f"Loaded {len(self.trajectories)} trajectories")
-            print(f"  Total states: {sum(len(t.states) for t in self.trajectories.values())}")
+            print(f"  Total states: {sum(len(t) for t in self.trajectories.values())}")
 
     def unload(self, verbose=False):
         """
@@ -237,7 +328,7 @@ class Simulation:
 
         # Unload trajectories from files
         if verbose:
-            print(f"Unloading simulation {self.dir.name} from memory...")
+            print(f"Unloading simulation {self.sim_path.name} from memory...")
 
         for traj in self.trajectories.values():
             traj.unload(verbose=verbose)
@@ -259,7 +350,7 @@ class Simulation:
         """
         # Clearing cache from files
         if verbose:
-            print(f"Clearing trajectory cache for simulation {self.dir.name}...")
+            print(f"Clearing trajectory cache for simulation {self.sim_path.name}...")
 
         deleted_count = 0
         for traj in self.trajectories.values():
@@ -296,10 +387,10 @@ class Simulation:
                 file.unlink()
                 counter += 1
                 if verbose:
-                    print(f"Simulation {self.dir.name}: {file.name} deleted.")
+                    print(f"Simulation {self.sim_path.name}: {file.name} deleted.")
             else:
                 if verbose:
-                    print(f"Simulation {self.dir.name}: {file.name} does not exist.")
+                    print(f"Simulation {self.sim_path.name}: {file.name} does not exist.")
     
         return counter
         
@@ -994,14 +1085,14 @@ class Simulation:
 
         if fraction is None or fraction <= 0.0 or fraction > 1.0:
             print(
-                f"Skipping {property} for simulation #{self.dir.name}:\n"
+                f"Skipping {property} for simulation #{self.sim_path.name}:\n"
                 f"  invalid equilibration fraction ({fraction}). "
                  "Run find_equilibrium_fraction_fit() or set simset.fractions_eq[<n>].")
             # Clean cache for invalid fraction
             if file is not None and file.exists():
                 file.unlink()
                 if verbose:
-                    print(f"  {property}-cache cleared for simulation #{self.dir.name} ({file.name})")
+                    print(f"  {property}-cache cleared for simulation #{self.sim_path.name} ({file.name})")
             return True
         
         else:
@@ -1050,9 +1141,9 @@ class Simulation:
         traj_info = f", {n_trajs} trajectories with {n_states} states in total)"
         
         return (
-            f"simulation(sim={self.dir.name}, "
-            f"T={self.metadata['temperature']}K, "
-            f"θ={self.metadata['coverage']:.3f})"
+            f"simulation(sim={self.sim_path.name}, "
+            f"T={self.input_pars['temperature'][0]}K, "
+            f"Inital seed: {self.nads0})"
             + traj_info
         )
     
