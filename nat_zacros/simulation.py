@@ -103,25 +103,6 @@ class Simulation:
             print(f"Simulation {self.sim_path} does not exist.")
             self.is_valid = False
         else:
-            # Parse Simulation input
-            self.input_pars = self._get_input_pars(verbose=verbose)
-
-            self.n_surf_species = int(self.input_pars['n_surf_species'][0])
-            self.surf_species_names = dict(zip(self.input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
-            self.surf_species_names['*'] = 0
-
-            # Get initial seed from state_input
-            self.nads0 = self._get_initial_nads() if len(self._get_initial_nads()) > 0 else dict(zip(self.input_pars['surf_specs_names'], [0] * self.n_surf_species))
-
-            # Parse reaction mechanism input
-            self.reactions = self._parse_reaction_mechanism(verbose=verbose)
-
-            # Converts species names to the corresponding indices
-            # and dentations to int in the reaction mechanism dict
-            for reaction in self.reactions:
-                self.reactions[reaction] = np.array([[self.surf_species_names[sp_name], dent] for sp_name, dent in self.reactions[reaction]], 
-                                                    dtype=int)
-
             # Detect trajectory directories
             self.traj_dirs = sorted([
                 d for d in self.sim_path.iterdir() 
@@ -138,6 +119,35 @@ class Simulation:
                     print(f"Cannot load lattice data for simulation {self.sim_path.name}")
                     self.is_valid = False
                 else:
+                    # Parse Simulation input
+                    self.input_pars = self.traj_dirs[0]._get_input_pars(verbose=verbose)
+
+                    self.n_gas_species = int(self.input_pars['n_gas_species'][0])
+                    self.gas_species_names = self.input_pars['gas_specs_names']
+                    self.n_surf_species = int(self.input_pars['n_surf_species'][0])
+                    self.surf_species_names = dict(zip(self.input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
+                    self.surf_species_names['*'] = 0
+                    self.surf_species_dent = dict(zip(self.input_pars['surf_specs_names'], [int(d) for d in self.input_pars['surf_specs_dent']]))
+                    self.surf_species_dent['*'] = 1
+
+                    # Get initial seed from state_input
+                    self.nads0 = self._get_initial_nads() if len(self._get_initial_nads()) > 0 else dict(zip(self.input_pars['surf_specs_names'], [0] * self.n_surf_species))
+
+                    # Initialize reactions atribute
+                    self.reactions = [ None, dict(zip(self.gas_species_names, [0] * self.n_gas_species)) ]
+                    # Parse reaction mechanism input
+                    reactions = self.traj_dirs[0]._parse_reaction_mechanism(verbose=verbose)
+
+                    # Converts species names to the corresponding indices
+                    # and dentations to int in the reaction mechanism dict
+                    for r, gas_prods in reactions:
+                        reactions[r][0] = np.array([[self.surf_species_names[sp_name], dent] for sp_name, dent in reactions[r]],                                                               dtype=int)
+                        gas_prod_dict = dict(zip(self.gas_species_names, [0] * self.n_gas_species))
+                        for key, val in gas_prods.items():
+                            gas_prod_dict[key] = val
+                        self.reactions[r][1] = gas_prod_dict
+
+
                     # Keep trajectories keyed by directory name for stable lookup.
                     for tdir in self.traj_dirs:
                         self.trajectories[tdir.name] = Trajectory(tdir, lattice=self.lattice, 

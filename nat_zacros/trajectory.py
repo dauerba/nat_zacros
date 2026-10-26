@@ -182,6 +182,11 @@ class Trajectory:
                     lsplit = line.partition('#')[0].strip().split()
                     if lsplit:
                         input_pars[lsplit[0]] = lsplit[1:]
+
+            # Add gas species info if not present
+            if input_pars.get('gas_specs_names') is None:
+                input_pars['gas_specs_names'] = []
+                input_pars['n_gas_species'] = [0]
         except:
             self.is_valid = False
             print(f"Cannot get simulation input parameters from simulation_input.dat")
@@ -202,6 +207,7 @@ class Trajectory:
             with open(self.traj_path /'mechanism_input.dat') as f:
                 content = f.readlines()
                 reaction_name_rev = None # Used to account for reversibility
+                gas_prods = None
                 
                 for iline, line in enumerate(content):
                     lsplit = line.partition('#')[0].strip().split()
@@ -213,14 +219,18 @@ class Trajectory:
                         if lsplit[0] == 'reversible_step':
                             reaction_name     = lsplit[1] + '_fwd'
                             reaction_name_rev = lsplit[1] + '_rev'
+                        if lsplit[0] == 'gas_reacs_prods':
+                            gas_prods = dict(zip(lsplit[1::2], [int(i) for i in lsplit[2::2]]))
                         if lsplit[0] == 'sites':
                             n_sites = int(lsplit[1])
                         if lsplit[0] == 'initial' and reaction_name_rev is not None:
                                 reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
-                                reaction_mechanism[reaction_name_rev] = reaction
+                                reaction_mechanism[reaction_name_rev] = [reaction, gas_prods]
+                                gas_prods = None
                         if lsplit[0] == 'final':
                             reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
-                            reaction_mechanism[reaction_name] = reaction
+                            reaction_mechanism[reaction_name] = [reaction, gas_prods]
+                            gas_prods = None
                             reaction_name_rev = None
         except:
             self.is_valid = False
@@ -388,9 +398,9 @@ class Trajectory:
 
                         # Append changes to deltas
                         self.delta_states.append( np.array([sites_inv, occs, dents]) )
-                        if n_gas_species > 0:
+                        if self.n_gas_species > 0:
                             print(self.delta_states)
-                            self.gas_species_changes[k-1,:] = [int(s) for s in content[pos + 1 + nsites].split()]
+                            self.gas_species_changes[k-1,:] = 
 
                     is_loaded = True
 
@@ -398,9 +408,10 @@ class Trajectory:
                     if verbose:
                         print(f'      Failed to load the initial state.')
 
-            except:
+            except FileExistsError:
                 if verbose:
                     print(f"      Loading failed.")
+                    print(f'         Error:{FileExistsError}')
 
         else: # event_report off: loading from history_output.txt
 
