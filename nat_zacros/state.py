@@ -25,10 +25,6 @@ class State:
     dir : str or None
         Directory containing the source trajectory files. Stored as a string for
         simple serialization.
-    n_gas_species : int
-        Number of gas-phase species
-    gas_species_names : list of str
-        Names of gas-phase species
     n_surf_species : int
         Number of surface-bound species
     surf_species_names : list of str
@@ -80,8 +76,6 @@ class State:
         self.lattice = lattice
 
         # Set attributes
-        self.n_gas_species = int(input_pars['n_gas_species'][0])
-        self.gas_species_names = input_pars['gas_specs_names']
         self.n_surf_species = int(input_pars['n_surf_species'][0])
         self.surf_species_names = dict(zip(input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
         self.surf_species_names['*'] = 0
@@ -89,7 +83,6 @@ class State:
         self.surf_species_dent['*'] = 1
 
         # Arrays of gas species and adsorbed species on the lattice
-        self.gas_species_change = np.zeros(self.n_gas_species, dtype=int)
         self.occupation = np.zeros(self.lattice.n_sites, dtype=int)
         self.dentation =  np.zeros(self.lattice.n_sites, dtype=int)
 
@@ -125,9 +118,6 @@ class State:
                 parts = content[7 + idx*(nsites+1) + site].split()
                 self.occupation[site] = int(parts[2])
                 self.dentation[site]  = int(parts[3])
-            if self.n_gas_species > 0:
-                self.gas_species_change = \
-                    np.array([int(s) for s in content[7 + idx*(nsites+1) + nsites].split()])
         except Exception as e:
             print(f'Error loading a state from trajectory {str(self.dir)}: {e}')
     
@@ -475,7 +465,7 @@ class State:
         if species is None:
             mask = self.occupation > 0
         else:
-            mask = self.occupation == self.surf_species_names[species] + 1
+            mask = self.occupation == self.surf_species_names[species]
 
         if site_type is not None:
             site_types = self.lattice.site_types

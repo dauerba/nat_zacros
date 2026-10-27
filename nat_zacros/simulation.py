@@ -119,129 +119,27 @@ class Simulation:
                     print(f"Cannot load lattice data for simulation {self.sim_path.name}")
                     self.is_valid = False
                 else:
-                    # Parse Simulation input
-                    self.input_pars = self.traj_dirs[0]._get_input_pars(verbose=verbose)
+                    # Initialize an object for the 1st trajectory
+                    self.trajectories[self.traj_dirs[0].name] = Trajectory(self.traj_dirs[0], lattice=self.lattice, verbose=verbose)
 
-                    self.n_gas_species = int(self.input_pars['n_gas_species'][0])
-                    self.gas_species_names = self.input_pars['gas_specs_names']
-                    self.n_surf_species = int(self.input_pars['n_surf_species'][0])
-                    self.surf_species_names = dict(zip(self.input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
-                    self.surf_species_names['*'] = 0
-                    self.surf_species_dent = dict(zip(self.input_pars['surf_specs_names'], [int(d) for d in self.input_pars['surf_specs_dent']]))
-                    self.surf_species_dent['*'] = 1
+                    # Get the attributes from the corresponding attributes of the 1st trajectory
+                    self.input_pars         = self.trajectories[self.traj_dirs[0].name].input_pars
+                    self.n_gas_species      = self.trajectories[self.traj_dirs[0].name].n_gas_species
+                    self.gas_species_names  = self.trajectories[self.traj_dirs[0].name].gas_species_names
+                    self.n_surf_species     = self.trajectories[self.traj_dirs[0].name].n_surf_species
+                    self.surf_species_names = self.trajectories[self.traj_dirs[0].name].surf_species_names
+                    self.surf_species_dent  = self.trajectories[self.traj_dirs[0].name].surf_species_dent
+                    self.nads0              = self.trajectories[self.traj_dirs[0].name].nads0
+                    self.reactions_surf     = self.trajectories[self.traj_dirs[0].name].reactions_surf
+                    self.reactions_gas      = self.trajectories[self.traj_dirs[0].name].reactions_gas
 
-                    # Get initial seed from state_input
-                    self.nads0 = self._get_initial_nads() if len(self._get_initial_nads()) > 0 else dict(zip(self.input_pars['surf_specs_names'], [0] * self.n_surf_species))
-
-                    # Initialize reactions atribute
-                    self.reactions = [ None, dict(zip(self.gas_species_names, [0] * self.n_gas_species)) ]
-                    # Parse reaction mechanism input
-                    reactions = self.traj_dirs[0]._parse_reaction_mechanism(verbose=verbose)
-
-                    # Converts species names to the corresponding indices
-                    # and dentations to int in the reaction mechanism dict
-                    for r, gas_prods in reactions:
-                        reactions[r][0] = np.array([[self.surf_species_names[sp_name], dent] for sp_name, dent in reactions[r]],                                                               dtype=int)
-                        gas_prod_dict = dict(zip(self.gas_species_names, [0] * self.n_gas_species))
-                        for key, val in gas_prods.items():
-                            gas_prod_dict[key] = val
-                        self.reactions[r][1] = gas_prod_dict
-
-
-                    # Keep trajectories keyed by directory name for stable lookup.
-                    for tdir in self.traj_dirs:
+                    # Initialize remaining trajectories
+                    for tdir in self.traj_dirs[1:]:
                         self.trajectories[tdir.name] = Trajectory(tdir, lattice=self.lattice, 
-                                                                        input_pars=self.input_pars, reactions=self.reactions, verbose=verbose)
+                                                                        input_pars=self.input_pars, 
+                                                                        reactions=(self.reactions_surf, self.reactions_gas), 
+                                                                        verbose=verbose)
 
-
-    def _get_input_pars(self, verbose=False):
-
-        # Load simulation_input.dat as a dict
-        # accounting for comments marked with '#'
-        # assuming the first entry to be a key
-        data = dict()
-        try:
-            with open(self.sim_path / 'simulation_input.dat') as f:
-                for line in f:
-                    lsplit = line.partition('#')[0].strip().split()
-                    if lsplit:
-                        data[lsplit[0]] = lsplit[1:]
-        except:
-            self.is_valid = False
-            print(f"Cannot get simulation input parameters from simulation_input.dat")
-
-        if verbose:
-            print(f'  Input parameters:\n')
-            print(data)
-
-        return data
-        
-    def _parse_reaction_mechanism(self, verbose=False):
-        # Load mechanism_input.dat as a dict
-        # with the reaction names as keys
-        # and final state as values
-
-        data = dict()
-        try:
-            with open(self.sim_path /'mechanism_input.dat') as f:
-                content = f.readlines()
-                reaction_name_rev = None # Used to account for reversibility
-                for iline, line in enumerate(content):
-                    lsplit = line.partition('#')[0].strip().split()
-                    if lsplit:
-                        # Irreversible reaction
-                        if lsplit[0] == 'step':
-                            reaction_name = lsplit[1]
-                        # Reversible reaction
-                        if lsplit[0] == 'reversible_step':
-                            reaction_name     = lsplit[1] + '_fwd'
-                            reaction_name_rev = lsplit[1] + '_rev'
-                        if lsplit[0] == 'sites':
-                            n_sites = int(lsplit[1])
-                        if lsplit[0] == 'initial' and reaction_name_rev is not None:
-                                reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
-                                data[reaction_name_rev] = reaction
-                        if lsplit[0] == 'final':
-                            reaction = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
-                            data[reaction_name] = reaction
-                            reaction_name_rev = None
-        except:
-            self.is_valid = False
-            print(f"Cannot get reaction mechanism from mechanism_input.dat")
-
-        if verbose:
-            print(f'  Input parameters:\n')
-            print(data)
-
-        return data
-
-    def _get_initial_nads(self, verbose=False):
-
-        # Load state_input.dat 
-        # accounting for comments marked with '#'
-        nads = dict()
-        try:
-            with open(self.sim_path / 'state_input.dat') as f:
-                for line in f:
-                    lsplit = line.partition('#')[0].strip().split()
-                    if lsplit:
-                        if lsplit[0] == 'seed_on_sites':
-                            sp_name = lsplit[1]
-                            nads[sp_name] = nads[sp_name] + 1 if sp_name in nads.keys() else 1
-                        if lsplit[0] == 'seed_multiple':
-                            sp_name = lsplit[1]
-                            n = int(lsplit[2])
-                            nads[sp_name] = nads[sp_name] + n if sp_name in nads.keys() else n
-        except:
-            if verbose:
-                print(f"  Cannot get seeding info from state_input.dat")
-
-        if verbose:
-            print(f'  Number of adsorbates seeded:\n')
-            print(nads)
-
-        return nads
-        
 
     def _parse_results_header(self, file_path, verbose=False):
         """
