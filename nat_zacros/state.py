@@ -47,11 +47,11 @@ class State:
         Get clusters
     get_coverages()
         Calculate fraction of occupied sites
-    get_occupied_sites()
+    get_species_sites()
         Get indices of occupied sites
     get_empty_sites()
         Get indices of empty sites
-    get_occupied_coords()
+    get_species_coords()
         Get Cartesian coordinates of occupied sites
     n_ads()
         Get total number of adsorbates
@@ -76,6 +76,7 @@ class State:
         self.lattice = lattice
 
         # Set attributes
+        self.input_pars = input_pars
         self.n_surf_species = int(input_pars['n_surf_species'][0])
         self.surf_species_names = dict(zip(input_pars['surf_specs_names'], range(1,self.n_surf_species+1)))
         self.surf_species_names['*'] = 0
@@ -305,8 +306,7 @@ class State:
                 # Check neighbors
                 for j in range(n_ads):
                     if not visited[j]:
-                        dist = self.lattice.minimum_image_distance(pts[current], pts[j])
-                        #dist = np.linalg.norm(pts[current] - pts[j])
+                        dist = np.linalg.norm(pts[current] - pts[j])
                         if dist <= cutoff:
                             visited[j] = True
                             queue[j]   = True
@@ -318,9 +318,10 @@ class State:
         return np.arange(len(clusters)), clusters, sizes
 
 
-    def get_coverages(self):
+    def get_nads(self):
         """
-        Calculate the coverages for surface species (the ratio of adsorbate molecules to the number of structural surface molecules).
+        Calculate the coverages for surface species (the ratio of adsorbate molecules 
+        to the number of structural surface molecules).
 
         Returns
         -------
@@ -328,18 +329,11 @@ class State:
             partial coverages of surface species, 
             index 0 refers to the coverage of empty sites
         """
-
-        coverages = np.empty(self.n_surf_species + 1)
-        indices, counts = np.unique(self.occupation, return_counts=True)
-        coverages[indices] = counts / self.lattice.n_sites
-
-        # Here is another (probably, more efficient) way to count
-        # we've chosen np.unique for it does not deal with zeros
-        # coverages = np.zeros(self.n_surf_species)
-        # counts = np.bincount(self.occupation)
-        # coverages[:len(counts)] = counts / len(self.occupation)
-        
-        return coverages
+        counts = np.bincount(self.occupation)
+        nads = dict()
+        for sp, i in self.surf_species_names.items():
+            nads[sp] = counts[i] // self.surf_species_dent[sp]
+        return nads
 
     
     def get_leed_intensity(self, distances, r):
@@ -408,7 +402,7 @@ class State:
         g_r = np.zeros(n_bins)
 
         if species_1 == species_2:
-            occupied_sites_1 = self.get_occupied_sites(species=species_1) 
+            occupied_sites_1 = self.get_species_sites(species=species_1) 
             occupied_sites_2 = occupied_sites_1 
             # Get distances between occupied sites:
             # by selecting distances submatrix using np.ix_ mesh constructor
@@ -421,8 +415,8 @@ class State:
             degeneracy = 2
 
         else:
-            occupied_sites_1 = self.get_occupied_sites(species=species_1) 
-            occupied_sites_2 = self.get_occupied_sites(species=species_2) 
+            occupied_sites_1 = self.get_species_sites(species=species_1) 
+            occupied_sites_2 = self.get_species_sites(species=species_2) 
             # Get distances between occupied sites:
             # by selecting distances submatrix using np.ix_ mesh constructor
             dist_vector = distances[np.ix_(occupied_sites_1, occupied_sites_2)].flatten()
@@ -446,13 +440,13 @@ class State:
         return r_bins, g_r
 
 
-    def get_occupied_sites(self, species = None, site_type=None):
+    def get_species_sites(self, species, site_type=None):
         """
         Get indices of sites of site_type occupied by a species.
 
         Parameters
         ----------
-        species : str or None; default None
+        species : str;
             Surface species name; if None, include all species
         site_type : str or None; default None
             Site type name; if None, include all site types
@@ -462,42 +456,17 @@ class State:
         ndarray
             Array of occupied site indices
         """
-        if species is None:
-            mask = self.occupation > 0
-        else:
-            mask = self.occupation == self.surf_species_names[species]
+        mask = self.occupation == self.surf_species_names[species]
 
         if site_type is not None:
             site_types = self.lattice.site_types
-            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
+            mask = mask & (site_types == self.lattice.site_type_names.index(site_type))
 
         return np.where(mask)[0]
 
-    def get_empty_sites(self, site_type=None):
+    def get_occupied_sites(self, site_type=None):
         """
-        Get indices of all empty sites of a specific type.
-
-        Parameters
-        ----------
-        site_type : str or None; default None
-            Site type name; if None, include all site types
-        
-        Returns
-        -------
-        ndarray
-            Array of site indices where occupation == 0
-        """
-        mask = self.occupation == 0
-
-        if site_type is not None:
-            site_types = self.lattice.site_types
-            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
-
-        return np.where(mask)[0]
-
-    def get_empty_coords(self, site_type=None):
-        """
-        Get Cartesian coordinates of empty sites of site_type.
+        Get indices of occupied sites of site_type 
 
         Parameters
         ----------
@@ -507,48 +476,57 @@ class State:
         Returns
         -------
         ndarray
-            (N, 2) array of coordinates for empty sites
+            Array of occupied site indices
         """
-        mask = self.occupation == 0
+        mask = self.occupation > 0
 
         if site_type is not None:
             site_types = self.lattice.site_types
-            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
+            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) )
 
-        return self.lattice.coordinates[mask]
-    
+        return np.where(mask)[0]
 
-    
-    def get_occupied_coords(self, species=None, site_type=None):
+    def get_species_coords(self, species, site_type=None):
         """
-        Get Cartesian coordinates of sites of site_type occupied by a species.
+        Get indices of sites of site_type occupied by a species.
 
         Parameters
         ----------
-        species : str or None; default None
+        species : str;
             Surface species name; if None, include all species
         site_type : str or None; default None
             Site type name; if None, include all site types
-            
+
         Returns
         -------
         ndarray
-            (N, 2) array of coordinates for occupied sites
+            Array of occupied site indices
         """
-        if species is None:
-            mask = self.occupation > 0
-        else:
-            mask = self.occupation == self.surf_species_names[species] + 1
+        indices = self.get_species_sites(species, site_type=site_type)
+        return self.lattice.coordinates[indices]
 
-        if site_type is not None:
-            site_types = self.lattice.site_types
-            mask = mask & (site_types == self.lattice.site_type_names.index(site_type) + 1)
+    def get_occupied_coords(self, site_type=None):
+        """
+        Get indices of occupied sites of site_type 
 
-        return self.lattice.coordinates[mask]
+        Parameters
+        ----------
+        site_type : str or None; default None
+            Site type name; if None, include all site types
+
+        Returns
+        -------
+        ndarray
+            Array of occupied site indices
+        """
+        mask = self.occupation > 0
+
+        indices = self.get_occupied_sites(site_type=site_type)
+        return self.lattice.coordinates[indices]
 
 
     def plot(self, ax=None, scaling=1, ads_scaling=1.2, markers=None, colors=None, legend=True,
-                    show_axis = True):
+                    show_axis = True, coverage_norm=1):
         """Plot the state of the lattice.
 
         Parameters
@@ -585,10 +563,10 @@ class State:
             fig, ax = plt.subplots(figsize=(8,6))
         
         # Get temperature and coverages for the title
-        Ts = self.metadata['temperature']
-        sp_names = [sp[:-1] if sp.endswith('*') else sp for sp in list(self.surf_species_names.keys())]
-        covs = self.get_coverages()[1:]
-        title = f'T = {Ts} K, ' + ', '.join([fr'$\theta_{{{sp}}} = {{{covs[i]:.3f}}}$' for i, sp in enumerate(sp_names)])
+        Ts = float(self.input_pars['temperature'][0])
+        sp_names = [sp[:-1] if sp.endswith('*') else sp for sp in list(self.surf_species_names.keys()) if sp != '*']
+        covs = self.get_nads() 
+        title = f'T = {Ts} K, ' + ', '.join([fr'$\theta_{{{sp}}} = {{{covs[sp+'*']/ (coverage_norm*self.lattice.n_cells):.3f}}}$' for sp in sp_names])
 
         # Set up the plot
         ax.set_title(title)
@@ -601,7 +579,7 @@ class State:
 
         # Put empty sites on the plot
         for ist, st in enumerate(self.lattice.site_type_names):
-            x, y = self.get_empty_coords(site_type=st).T
+            x, y = self.get_species_coords('*', site_type=st).T
             if len(x) > 0:  # plot only if there are points to plot
                 ax.scatter(x, y, color=colors[0], marker= markers[ist], s=size, zorder=2,
                         label= st)
@@ -611,7 +589,7 @@ class State:
             for ist, st in enumerate(self.lattice.site_type_names):
 
                 sp_name = list(self.surf_species_names.keys())[isp]
-                x, y = self.get_occupied_coords(species=sp_name, site_type=st).T
+                x, y = self.get_species_coords(species=sp_name, site_type=st).T
                 marker_size = size * ads_scaling
                 if len(x) > 0:  # plot only if there are points to plot
                     ax.scatter(x, y, color=colors[isp+1], marker= markers[ist], s=marker_size, zorder=isp+2,
@@ -620,9 +598,11 @@ class State:
             ax.legend(loc='lower right', frameon=False)
         if not show_axis:
             ax.axis('off')
+
+        plt.show()
                     
 
     def __repr__(self):
         """String representation of State class"""
-        occ = [ (k, len(self.get_occupied_sites(k))) for k in self.surf_species_names.keys() if k != '*']
+        occ = [ (k, len(self.get_species_sites(k))) for k in self.surf_species_names.keys() if k != '*']
         return f"State(nsites={self.lattice.n_sites}, adsorbates={occ})"

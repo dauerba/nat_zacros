@@ -213,10 +213,10 @@ class Simulation:
 
         # Load trajectories from files
         if verbose:
+            print(f"\nSimulation {self.sim_path.name}:")
             print(f"Loading {len(self.traj_dirs)} trajectories...")
 
         for traj in self.trajectories.values():
-            print(f'Simulation:\n {traj}')
             traj.load(cache=cache, verbose=verbose)
         self.is_loaded = True
 

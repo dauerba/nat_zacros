@@ -897,7 +897,7 @@ class Trajectory:
 
         # Convert site indices to the 2D form    
         cols = self.lattice.cols[sites]
-        rows = self.lattice.cols[sites]
+        rows = self.lattice.rows[sites]
 
         if expand:
 

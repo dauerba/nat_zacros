@@ -50,7 +50,7 @@ class Lattice:
     n_cell_sites : int
         Number of sites in one unit cell.
     site_types : numpy.ndarray, shape (n_sites,)
-        One-based site-type index for each lattice site.
+        Site-type index for each lattice site.
     n_cells : int
         Total number of unit cells in the simulation cell.
     n_sites : int
@@ -110,7 +110,7 @@ class Lattice:
         self.n_site_types = 1
         self.site_type_names = ['fcc']
         self.n_cell_sites = 1
-        self.site_types = ['fcc']
+        self.cell_site_types = ['fcc']
 
         self.n_cells = self.n_cols * self.n_rows
         self.n_sites = self.n_cells * self.n_cell_sites
@@ -123,7 +123,7 @@ class Lattice:
                                       (1,1, 'east'),
                                       (1,1, 'southeast') ]
         self.coordinates = np.array([[1/3, 1/3]])
-        self.site_types = np.array([1])
+        self.site_types = np.array([0])
         self.site_coordinations = np.array([6])
         # list of arrays of nearest neighbors for each lattice site
         self.site_nns = [ np.array([0,0,0,0,0,0]) ]
@@ -187,10 +187,10 @@ class Lattice:
                 if ls[0] == 'n_cell_sites':
                     self.n_cell_sites = int(ls[1])
                 if ls[0] == 'site_types':
-                    self.site_types = ls[1:]
+                    self.cell_site_types = ls[1:]
                     # convert to names if given as indices
-                    if self.site_types[0].isdigit():
-                        self.site_types = [ self.site_type_names[int(x)-1] for x in self.site_types ]
+                    if self.cell_site_types[0].isdigit():
+                        self.cell_site_types = [ self.site_type_names[int(x)-1] for x in self.cell_site_types ]
                 if ls[0] == 'site_coordinates':
                     self.fractional_coordinates = np.zeros((self.n_cell_sites,2), dtype=float)
                     for j in range(self.n_cell_sites):
@@ -229,7 +229,7 @@ class Lattice:
                 for line in f:
                     ls = line.split()
                     site_coordinates.append(ls[1:3])
-                    site_types.append(int(ls[3]))
+                    site_types.append(int(ls[3]) - 1) # convert to a 0-based index
                     site_coordinations.append(int(ls[4]))
                     # -1 is for python
                     site_nns.append(np.array([ int(ls[5+i])-1 for i in range(int(ls[4]))], dtype=int))
@@ -375,8 +375,8 @@ class Lattice:
 
         # Loop over site types
         for i_st in range(len(self.site_type_names)):
-            # Get indices for a site type i_st+1
-            ids = np.where(self.site_types == i_st+1)[0]
+            # Get indices for a site type
+            ids = np.where(self.site_types == i_st)[0]
 
             ax.scatter(x[ids], y[ids], color=colors[i_st], marker= markers[i_st], s=size, 
                     label= self.site_type_names[i_st])
@@ -385,6 +385,8 @@ class Lattice:
             fig.legend(loc=legend_loc, frameon=True)
         if not show_axis:
             ax.axis('off')
+
+        plt.show()
                     
     def __repr__(self):
         """String representation of Lattice class"""
