@@ -82,6 +82,7 @@ class State:
         self.surf_species_names['*'] = 0
         self.surf_species_dent = dict(zip(input_pars['surf_specs_names'], [int(d) for d in input_pars['surf_specs_dent']]))
         self.surf_species_dent['*'] = 1
+        self.dent_lookup = np.array([1] + input_pars['surf_specs_dent'], dtype=int)
 
         # Arrays of gas species and adsorbed species on the lattice
         self.occupation = np.zeros(self.lattice.n_sites, dtype=int)
@@ -329,11 +330,7 @@ class State:
             partial coverages of surface species, 
             index 0 refers to the coverage of empty sites
         """
-        counts = np.bincount(self.occupation)
-        nads = dict()
-        for sp, i in self.surf_species_names.items():
-            nads[sp] = counts[i] // self.surf_species_dent[sp]
-        return nads
+        return np.bincount(self.occupation) // self.dent_lookup
 
     
     def get_leed_intensity(self, distances, r):
@@ -566,7 +563,7 @@ class State:
         Ts = float(self.input_pars['temperature'][0])
         sp_names = [sp[:-1] if sp.endswith('*') else sp for sp in list(self.surf_species_names.keys()) if sp != '*']
         covs = self.get_nads() 
-        title = f'T = {Ts} K, ' + ', '.join([fr'$\theta_{{{sp}}} = {{{covs[sp+'*']/ (coverage_norm*self.lattice.n_cells):.3f}}}$' for sp in sp_names])
+        title = f'T = {Ts} K, ' + ', '.join([fr'$\theta_{{{sp}}} = {{{covs[self.surf_species_names[sp+'*']]/ (coverage_norm*self.lattice.n_cells):.3f}}}$' for sp in sp_names])
 
         # Set up the plot
         ax.set_title(title)

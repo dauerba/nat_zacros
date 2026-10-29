@@ -309,20 +309,6 @@ class Trajectory:
         return reactions_surf, reactions_gas
 
 
-    def get_energy_vs_time(self):
-        """
-        Get energy as a function of time.
-
-        Returns
-        -------
-        times : ndarray
-            Time points
-        energies : ndarray
-            Energies at each time point
-        """
-        return self.times, self.energies
-      
-                
     def load(self, cache=True, verbose=False):
         """
         Load trajectory data from Zacros output files.
@@ -365,7 +351,7 @@ class Trajectory:
                     self.initial_state, self.delta_states, self.gas_species_changes, self.times, self.energies = pickle.load(f)
                 if verbose:
                     size_mb = self.cache_file.stat().st_size / 1024**2
-                    print(f"    Loaded trajectory {self.traj_path.name} with {len(self.delta_states+1)} states from cache ({size_mb:.1f} MB).")
+                    print(f"    Loaded trajectory {self.traj_path.name}: {self} from cache ({size_mb:.1f} MB).")
                 return
 
         # Auto-selection of the trajectory source
@@ -376,7 +362,7 @@ class Trajectory:
         if self.input_pars['event_report'][0] == 'on': # Implies that the source could be 'general_output.txt'
 
             if verbose:
-                print(f'   Trying to load from general_output.txt...')
+                print(f'    Trying to load from general_output.txt...')
 
             # Try to load states from from 'general_output.txt'
             try:
@@ -581,17 +567,20 @@ class Trajectory:
 
                 is_loaded = True
 
-                # Save to cache
-                if cache:
-                    with open(self.cache_file, 'wb') as f:
-                        pickle.dump([self.initial_state, self.delta_states, self.gas_species_changes, self.times, self.energies], f)
-                        size_mb = self.cache_file.stat().st_size / 1024**2
-
+            except FileExistsError:
                 if verbose:
-                    print(f"Loaded {f' and cached ({size_mb:.1f} MB)' if cache else ''} trajectory {self.traj_path.name} with {len(self)} states.")
+                    print(f"      Loading failed.")
+                    print(f'         Error:{FileExistsError}')
 
-            except Exception as e:
-                print(f'Error loading trajectory from {str(self.traj_path)}: {e}')
+        # Save to cache
+        if cache:
+            with open(self.cache_file, 'wb') as f:
+                pickle.dump([self.initial_state, self.delta_states, self.gas_species_changes, self.times, self.energies], f)
+                size_mb = self.cache_file.stat().st_size / 1024**2
+
+        if verbose:
+            print(f"    Loaded {f'and cached ({size_mb:.1f} MB)' if cache else ''} {self.traj_path.name}: {self}.")
+
         
 
 
@@ -605,14 +594,14 @@ class Trajectory:
             If True, print detailed loading information.
         """
 
-        n_states = len(self)
-        self.states = []
         self.initial_state = None
-        self.state_deltas = []
-        self.times = np.array([])
-        self.energies = np.array([])
+        self.delta_states = []
+        self.gas_species_changes = dict()
+        self.times = []
+        self.energies = []
+
         if verbose:
-            print(f" {self.traj_path.name} with {n_states} states unloaded.")
+            print(f" {self.traj_path.name}: {self} unloaded.")
 
 
     def clear_cache(self, verbose=False):
@@ -634,10 +623,30 @@ class Trajectory:
             if verbose:
                 print(f"Cleared cache for trajectory {self.traj_path.name}")
             return 1
+        else:
+            if verbose:
+                print(f"  Cache for trajectory {self.traj_path.name} not found")
+
         return 0
 
 
+    def get_energy_vs_time(self, verbose=False):
+        """
+        Get energy as a function of time.
 
+        Returns
+        -------
+        times : ndarray
+            Time points
+        energies : ndarray
+            Energies at each time point
+        """
+
+        if verbose and len(self.times) == 0:
+            print(f'Trajectory is empty: {self}')
+            
+        return self.times, self.energies
+      
         
     # ==========================================================================
     # RDF (Radial Distribution Function) Analysis Methods
@@ -817,7 +826,7 @@ class Trajectory:
         return self.times, intensities
         
 
-    def get_coverages_vs_time(self, atoms_per_uc=1):
+    def get_coverages_vs_time(self, coverage_norm=1, verbose=False):
         """
         Get coverages of surface species as a function of time.
         
@@ -828,24 +837,14 @@ class Trajectory:
         coverages : 2D-array (nstates, n_surf_species+1)
             Partial coverages at each time point
         """
-        #coverages = np.array([self[i].get_coverages(atoms_per_uc=atoms_per_uc) for i in range(len(self))])
 
         def cov_iter():
-            if self.initial_state is None:
-                for st in self.states:
-                    yield st.get_coverages(atoms_per_uc=atoms_per_uc)
-            else:
-                st = self.initial_state
-                yield st.get_coverages(atoms_per_uc=atoms_per_uc)
-                for delta in self.state_deltas:
-                    st = st.create_from_deltas(delta)
-                    if st is None:
-                        raise RuntimeError('Failed to reconstruct state from deltas.')
-                    yield st.get_coverages(atoms_per_uc=atoms_per_uc)
+            for st in self[:]:
+                yield st.get_nads()
 
-        return self.times, np.vstack(list(cov_iter()))
+        return self.times, np.vstack(list(cov_iter())) / (coverage_norm*self.lattice.n_cells)
 
-    def get_ads_path(self, idx, trim_zeros=False):
+    def get_ads_path(self, idx, trim_zeros=False, verbose=False):
         """
         Get the path of an adsorbate idx
         """
@@ -853,17 +852,8 @@ class Trajectory:
         n_states = len(self)
 
         def ads_site_iter():
-            if self.initial_state is None:
-                for st in self.states:
-                    yield st.get_ads_site(idx)
-            else:
-                st = self.initial_state
+            for st in self[:]:
                 yield st.get_ads_site(idx)
-                for delta in self.state_deltas:
-                    st = st.create_from_deltas(delta)
-                    if st is None:
-                        raise RuntimeError('Failed to reconstruct state from deltas.')
-                    yield st.get_ads_site(idx)
 
         ads_path = np.fromiter(ads_site_iter(), dtype=int, count=n_states)
 
