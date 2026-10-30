@@ -88,38 +88,49 @@ class Trajectory:
                                               else dict(zip(self.input_pars['surf_specs_names'], [0] * self.n_surf_species))
 
         if reactions is None:
-            # Initialize reactions atribute
-            self.reactions_surf = dict()
-            self.reactions_gas =  dict()
+            # Initialize dictionaries
+            self.reactions_surf_i = dict()
+            self.reactions_surf_f = dict()
+            self.reactions_gas    = dict()
+
             # Parse reaction mechanism input
-            reactions_surf, reactions_gas = self._parse_reaction_mechanism(verbose=verbose)
+            reactions_surf_i, reactions_surf_f, reactions_gas = self._parse_reaction_mechanism(verbose=verbose)
 
             # Converts species names to the corresponding indices
-            # and dentations to int in the reaction mechanism dict
-            for r in reactions_surf:
-                self.reactions_surf[r] = np.array([[self.surf_species_names[sp_name], dent] for sp_name, dent in reactions_surf[r]],
-                                                    dtype=int)
+            # and entities and dentations to int in the reaction mechanism dict
+            for name, reactants in reactions_surf_i.items():
+                self.reactions_surf_i[name] = \
+                    np.array([[entity, self.surf_species_names[sp_name], dent] 
+                                for entity, sp_name, dent in reactants],  dtype=int)
+            for name, reactants in reactions_surf_f.items():
+                self.reactions_surf_f[name] = \
+                    np.array([[entity, self.surf_species_names[sp_name], dent] 
+                                for entity, sp_name, dent in reactants],  dtype=int)
 
             # reactions_gas attribute has the following structure: {reaction name : {gas_species_name : its change} }
             # Set values for for all gas species changes to 0
-            for r in reactions_surf:
+            for r in reactions_surf_i:
                 self.reactions_gas[r] = dict(zip(self.gas_species_names, [0] * self.n_gas_species))
             # Get the actual values from the parsed information
             for r in reactions_gas:
                 for sp in reactions_gas[r]:
                     self.reactions_gas[r][sp] = reactions_gas[r][sp]
         else:
-            self.reactions_surf, self.reactions_gas = reactions
+            self.reactions_surf_i, self.reactions_surf_f, self.reactions_gas = reactions
 
         if verbose:
-            print(f'\n  reactions_surf attribute:')
-            for k,v in self.reactions_surf.items():
+            print(f'\n  reactions_surf_i attribute:')
+            for k,v in self.reactions_surf_i.items():
+                print(f'   {k}:\n {v}')
+            print(f'\n  reactions_surf_f attribute:')
+            for k,v in self.reactions_surf_f.items():
                 print(f'   {k}:\n {v}')
             print(f'\n  reactions_gas attribute:')
             for k,v in self.reactions_gas.items():
                 print(f'   {k}:\n {v}')
 
         self.initial_state = None
+        self.id_counter = 0
         self.delta_states = []
         self.gas_species_changes = dict()
         self.times = []
@@ -251,7 +262,8 @@ class Trajectory:
         # values:
         #   surf: a list with length of number of involved sites of lists consisting of a species name and dentate as a str
         #   gas:  a dict with a gas species names as a key and its change as a value (int)
-        reactions_surf = dict()
+        reactions_surf_f = dict()
+        reactions_surf_i = dict()
         reactions_gas  = dict()
         try:
             with open(self.traj_path /'mechanism_input.dat') as f:
@@ -283,14 +295,22 @@ class Trajectory:
                         if lsplit[0] == 'sites':
                             n_sites = int(lsplit[1])
 
-                        # for reversible case, take the initial state to be the final state
-                        if lsplit[0] == 'initial' and reaction_name_rev is not None:
-                                reactions_surf[reaction_name_rev] = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
-                        
-                        # Get the final state
+                        # get the initial state
+                        if lsplit[0] == 'initial':
+                                initial = [l.split() for l in content[iline+1:iline+1+n_sites]]
+
+                        # get the final states
                         if lsplit[0] == 'final':
-                            reactions_surf[reaction_name] = [l.split()[1:] for l in content[iline+1:iline+1+n_sites]]
-                            reaction_name_rev = None
+                                final   = [l.split() for l in content[iline+1:iline+1+n_sites]]
+
+                        if lsplit[0] == 'end_step':
+                            reactions_surf_i[reaction_name] = initial
+                            reactions_surf_f[reaction_name] = final
+                            if reaction_name_rev is not None:
+                                reactions_surf_i[reaction_name_rev] = final
+                                reactions_surf_f[reaction_name_rev] = initial
+                                reaction_name_rev = None
+
                             
         except:
             self.is_valid = False
@@ -298,15 +318,18 @@ class Trajectory:
 
         if verbose:
             print(f'\nReaction mechanism parameters for trajectory {self.traj_path}:')
-            print(f'  surface:')
-            for k, v in reactions_surf.items():
+            print(f'  surface initial:')
+            for k, v in reactions_surf_i.items():
+                print(f'    {k} : {v}')
+            print(f'  surface final:')
+            for k, v in reactions_surf_f.items():
                 print(f'    {k} : {v}')
             print(f'  gas:')
             for k, v in reactions_gas.items():
                 print(f'    {k} : {v}')
             print()
 
-        return reactions_surf, reactions_gas
+        return reactions_surf_i, reactions_surf_f, reactions_gas
 
 
     def load(self, cache=True, verbose=False):
@@ -373,10 +396,10 @@ class Trajectory:
                 st = State(self.lattice, self.input_pars, traj_path=self.traj_path)
 
                 # Get the initial state
-                ads_counter = 0
                 for line in content:
 
                     if 'adparticle to be seeded on site' in line:
+                        self.id_counter += 1
                         l_split = line.split()
                         sp_idx = st.surf_species_names[ l_split[0] ]
                         dent = st.surf_species_dent[ l_split[0] ]
@@ -385,15 +408,15 @@ class Trajectory:
                             # Account for Zacros numbering of sites and species
                             st.occupation[site-1] = sp_idx
                             st.dentation[site-1]  = dent
-
-                        ads_counter += 1
+                            st.ids[site-1]        = self.id_counter
+                        
 
                     if 'Total adlayer energy:' in line:
                         en = float(line.split()[-1])
                         # We need the initial state only
                         break
 
-                if ads_counter > 0:
+                if self.id_counter > 0:
     
                     # Initial state read in successfully
                     self.initial_state = st
@@ -421,6 +444,9 @@ class Trajectory:
                     self.times[0]    = 0.0
                     self.energies[0] = en
 
+                    # Adsorbate ids
+                    ads_ids = np.copy(self.initial_state.ids)
+
                     # Find the 1st line with kmc step
                     for iline, line in enumerate(content):
                         if 'KMC step' in line: break                        
@@ -436,7 +462,7 @@ class Trajectory:
                         # time
                         time = float(content[iline+2].split()[-1])
                         # sites involved
-                        sites_inv = [ int(s) - 1 for s in content[iline+3].split()[2:] ]
+                        sites_inv = np.array([ int(s) - 1 for s in content[iline+3].split()[2:] ])
                         # change of the energy
                         delta_en = float(content[iline+7].split()[-1])
 
@@ -445,11 +471,28 @@ class Trajectory:
                         self.times[k] = time
                         self.energies[k] = delta_en + self.energies[k-1]
                         # Get the changes and append them to deltas
-                        occs  = np.array(self.reactions_surf[reaction_name][:,0], dtype=int)
-                        dents = np.array(self.reactions_surf[reaction_name][:,1], dtype=int)
+                        occs  = np.array(self.reactions_surf_f[reaction_name][:,1], dtype=int)
+                        dents = np.array(self.reactions_surf_f[reaction_name][:,2], dtype=int)
+                        entities_i = self.reactions_surf_i[reaction_name][:,:2]
+                        entities_f = self.reactions_surf_f[reaction_name][:,:2]
+                        print(f'\n Initial state ids: {self.initial_state.ids[sites_inv]}')
+                        print(f'\n Entities initial: {entities_i}')
+                        print(f' Entities   final: {entities_f}')
+                        print(f' Occupation final: {occs}')
+                        print(f' Dentation  final: {dents}')
 
+                        ads_changes = np.empty(len(sites_inv))
+                        for i in range(len(sites_inv)):
+                            print(entities_i[i])
+                            shift_idx = np.where(np.all(entities_f == entities_i[i], axis=1))[0]
+                            ads_changes[shift_idx] = ads_ids[sites_inv[i]]
+                            print(ads_ids[sites_inv[i]], shift_idx)
+
+                        ads_ids[sites_inv] = ads_changes
+                        print(ads_ids[sites_inv])
+                        if 'NH3' in reaction_name: exit()
                         # Append changes to deltas
-                        self.delta_states.append( np.array([sites_inv, occs, dents]) )
+                        self.delta_states.append( np.array([sites_inv, occs, dents, ads_ids[sites_inv]]) )
                         for gas_species in self.gas_species_names:
                             self.gas_species_changes[gas_species][k-1] = self.reactions_gas[reaction_name][gas_species]
 
@@ -849,12 +892,11 @@ class Trajectory:
         Get the path of an adsorbate idx
         """
 
-        n_states = len(self)
-
         def ads_site_iter():
             for st in self[:]:
                 yield st.get_ads_site(idx)
 
+        n_states = len(self)
         ads_path = np.fromiter(ads_site_iter(), dtype=int, count=n_states)
 
         if trim_zeros:

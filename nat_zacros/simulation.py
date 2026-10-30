@@ -130,15 +130,17 @@ class Simulation:
                     self.surf_species_names = self.trajectories[self.traj_dirs[0].name].surf_species_names
                     self.surf_species_dent  = self.trajectories[self.traj_dirs[0].name].surf_species_dent
                     self.nads0              = self.trajectories[self.traj_dirs[0].name].nads0
-                    self.reactions_surf     = self.trajectories[self.traj_dirs[0].name].reactions_surf
+                    self.reactions_surf_i   = self.trajectories[self.traj_dirs[0].name].reactions_surf_i
+                    self.reactions_surf_f   = self.trajectories[self.traj_dirs[0].name].reactions_surf_f
                     self.reactions_gas      = self.trajectories[self.traj_dirs[0].name].reactions_gas
 
                     # Initialize remaining trajectories
                     for tdir in self.traj_dirs[1:]:
-                        self.trajectories[tdir.name] = Trajectory(tdir, lattice=self.lattice, 
-                                                                        input_pars=self.input_pars, 
-                                                                        reactions=(self.reactions_surf, self.reactions_gas), 
-                                                                        verbose=verbose)
+                        self.trajectories[tdir.name] = Trajectory(tdir, 
+                                                        lattice=self.lattice, 
+                                                        input_pars=self.input_pars, 
+                                                        reactions=(self.reactions_surf_i, self.reactions_surf_f, self.reactions_gas), 
+                                                        verbose=verbose)
 
 
     def _parse_results_header(self, file_path, verbose=False):

@@ -86,7 +86,8 @@ class State:
 
         # Arrays of gas species and adsorbed species on the lattice
         self.occupation = np.zeros(self.lattice.n_sites, dtype=int)
-        self.dentation =  np.zeros(self.lattice.n_sites, dtype=int)
+        self.dentation  = np.zeros(self.lattice.n_sites, dtype=int)
+        self.ids        = np.zeros(self.lattice.n_sites, dtype=int)
 
 
     def load(self, idx=0, verbose=False):
