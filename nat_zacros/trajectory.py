@@ -475,18 +475,43 @@ class Trajectory:
                         dents = np.array(self.reactions_surf_f[reaction_name][:,2], dtype=int)
                         entities_i = self.reactions_surf_i[reaction_name][:,:2]
                         entities_f = self.reactions_surf_f[reaction_name][:,:2]
-                        print(f'\n Initial state ids: {self.initial_state.ids[sites_inv]}')
+
+                        print(f'\n Initial state ids: {ads_ids[sites_inv]}')
                         print(f'\n Entities initial: {entities_i}')
                         print(f' Entities   final: {entities_f}')
                         print(f' Occupation final: {occs}')
                         print(f' Dentation  final: {dents}')
 
-                        ads_changes = np.empty(len(sites_inv))
+                        ads_changes = np.zeros(len(sites_inv), dtype=int)
+
                         for i in range(len(sites_inv)):
-                            print(entities_i[i])
-                            shift_idx = np.where(np.all(entities_f == entities_i[i], axis=1))[0]
-                            ads_changes[shift_idx] = ads_ids[sites_inv[i]]
-                            print(ads_ids[sites_inv[i]], shift_idx)
+                            
+                            print(f'initial: {entities_i[i]}')
+                            #print(entities_f == entities_i[i])
+
+                            # Get final sites of an adsorbate which was in site i before reaction
+                            idxs_of_matches = np.where(np.all(entities_f == entities_i[i], axis=1))[0]
+                            # Get the changes
+                            ads_changes[idxs_of_matches] = ads_ids[sites_inv[i]]
+
+                            print(f'{np.all(entities_f == entities_i[i], axis=1)}')
+                            print(ads_ids[sites_inv[i]], idxs_of_matches)
+
+                        free_slot_idxs = np.zeros(len(sites_inv), dtype=int)
+                        for i in range(len(sites_inv)):
+                            
+                            print(f'final: {entities_f[i]}')
+                            #print(entities_i == entities_f[i])
+
+                            is_in_initial = np.any(np.all(entities_i == entities_f[i], axis=1))
+                            if (not is_in_initial) and (entities_f[i,1] != 0):
+                                if free_slot_idxs[entities_f[i, 0] - 1] == 0:
+                                    self.id_counter += 1
+                                    free_slot_idxs[entities_f[i, 0] - 1] = self.id_counter
+                                ads_changes[i] = free_slot_idxs[entities_f[i, 0] - 1]
+
+                            print(f'{is_in_initial}')
+                            print(ads_changes[i])
 
                         ads_ids[sites_inv] = ads_changes
                         print(ads_ids[sites_inv])
