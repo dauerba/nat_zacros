@@ -34,8 +34,8 @@ class State:
     occupation : ndarray, shape (N,)
         Surface-species code at each site (0 = empty, 1..n = entries in
         ``surf_species_names`` plus one)
-    dentation : ndarray, shape (N,)
-        Denticity at each site
+    dentates : ndarray, shape (N,)
+        Site-specific adsorbate dentates
         
     Methods
     -------
@@ -86,7 +86,7 @@ class State:
 
         # Arrays of gas species and adsorbed species on the lattice
         self.occupation = np.zeros(self.lattice.n_sites, dtype=int)
-        self.dentation  = np.zeros(self.lattice.n_sites, dtype=int)
+        self.dentates  = np.zeros(self.lattice.n_sites, dtype=int)
         self.ids        = np.zeros(self.lattice.n_sites, dtype=int)
 
 
@@ -120,7 +120,7 @@ class State:
             for site in range(nsites):
                 parts = content[7 + idx*(nsites+1) + site].split()
                 self.occupation[site] = int(parts[2])
-                self.dentation[site]  = int(parts[3])
+                self.dentates[site]  = int(parts[3])
         except Exception as e:
             print(f'Error loading a state from trajectory {str(self.dir)}: {e}')
     

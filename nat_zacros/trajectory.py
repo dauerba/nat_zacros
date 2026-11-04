@@ -98,6 +98,8 @@ class Trajectory:
 
             # Converts species names to the corresponding indices
             # and entities and dentations to int in the reaction mechanism dict
+            # TODO: consider to combine entity and species id into a single integer with a shift operation
+            #       like, entity + 1024*species_id to simplify the ads_ids tracing when loading from general_output.txt
             for name, reactants in reactions_surf_i.items():
                 self.reactions_surf_i[name] = \
                     np.array([[entity, self.surf_species_names[sp_name], dent] 
@@ -175,21 +177,28 @@ class Trajectory:
         # Initialize a new state object with the same lattice and metadata
         new_state = State(self.lattice, self.input_pars, self.traj_path)
 
+        if self.initial_state is None:
+            print(' create_states() of Trajectory:')
+            print(f'   Cannot create states: {self.traj_path.name} is not loaded.')
+            return None
         # Initialize arrays for the new state
         new_state.occupation = np.copy(self.initial_state.occupation)
-        new_state.dentation  = np.copy(self.initial_state.dentation)
+        new_state.dentates  = np.copy(self.initial_state.dentates)
+        new_state.ids        = np.copy(self.initial_state.ids)
 
         # Loop over deltas up to the stop state
         for i in range(stop-1):
             sites_inv = self.delta_states[i][0,:]
             new_state.occupation[sites_inv] = self.delta_states[i][1]
-            new_state.dentation[sites_inv]  = self.delta_states[i][2]
+            new_state.dentates[sites_inv]  = self.delta_states[i][2]
+            new_state.ids[sites_inv]        = self.delta_states[i][3]
             if i + 1 >= start and (i + 1) % step == 0:
                 # Initialize a new state object with the same lattice and metadata
                 state_2_save = State(self.lattice, self.input_pars, self.traj_path)
                 # Copy arrays from the new state
                 state_2_save.occupation = np.copy(new_state.occupation)
-                state_2_save.dentation  = np.copy(new_state.dentation)
+                state_2_save.dentates  = np.copy(new_state.dentates)
+                state_2_save.ids        = np.copy(new_state.ids)
                 states.append(state_2_save)
 
         if isinstance(idx, int):
@@ -269,7 +278,6 @@ class Trajectory:
             with open(self.traj_path /'mechanism_input.dat') as f:
                 content = f.readlines()
                 reaction_name_rev = None # Used to account for reversibility
-                
                 for iline, line in enumerate(content):
                     lsplit = line.partition('#')[0].strip().split()
                     if lsplit:
@@ -303,7 +311,7 @@ class Trajectory:
                         if lsplit[0] == 'final':
                                 final   = [l.split() for l in content[iline+1:iline+1+n_sites]]
 
-                        if lsplit[0] == 'end_step':
+                        if lsplit[0] == 'end_step' or lsplit[0] == 'end_reversible_step':
                             reactions_surf_i[reaction_name] = initial
                             reactions_surf_f[reaction_name] = final
                             if reaction_name_rev is not None:
@@ -404,10 +412,10 @@ class Trajectory:
                         sp_idx = st.surf_species_names[ l_split[0] ]
                         dent = st.surf_species_dent[ l_split[0] ]
                         sites = [int(s) for s in l_split[-dent:]]
-                        for site in sites:
+                        for d, site in enumerate(sites):
                             # Account for Zacros numbering of sites and species
                             st.occupation[site-1] = sp_idx
-                            st.dentation[site-1]  = dent
+                            st.dentates[site-1]  = d + 1
                             st.ids[site-1]        = self.id_counter
                         
 
@@ -476,17 +484,17 @@ class Trajectory:
                         entities_i = self.reactions_surf_i[reaction_name][:,:2]
                         entities_f = self.reactions_surf_f[reaction_name][:,:2]
 
-                        print(f'\n Initial state ids: {ads_ids[sites_inv]}')
-                        print(f'\n Entities initial: {entities_i}')
-                        print(f' Entities   final: {entities_f}')
-                        print(f' Occupation final: {occs}')
-                        print(f' Dentation  final: {dents}')
+                        #print(f'\n Initial state ids: {ads_ids[sites_inv]}')
+                        #print(f'\n Entities initial: {entities_i}')
+                        #print(f' Entities   final: {entities_f}')
+                        #print(f' Occupation final: {occs}')
+                        #print(f' Dentation  final: {dents}')
 
                         ads_changes = np.zeros(len(sites_inv), dtype=int)
 
                         for i in range(len(sites_inv)):
                             
-                            print(f'initial: {entities_i[i]}')
+                            #print(f'initial: {entities_i[i]}')
                             #print(entities_f == entities_i[i])
 
                             # Get final sites of an adsorbate which was in site i before reaction
@@ -494,13 +502,13 @@ class Trajectory:
                             # Get the changes
                             ads_changes[idxs_of_matches] = ads_ids[sites_inv[i]]
 
-                            print(f'{np.all(entities_f == entities_i[i], axis=1)}')
-                            print(ads_ids[sites_inv[i]], idxs_of_matches)
+                            #print(f'{np.all(entities_f == entities_i[i], axis=1)}')
+                            #print(ads_ids[sites_inv[i]], idxs_of_matches)
 
                         free_slot_idxs = np.zeros(len(sites_inv), dtype=int)
                         for i in range(len(sites_inv)):
                             
-                            print(f'final: {entities_f[i]}')
+                            #print(f'final: {entities_f[i]}')
                             #print(entities_i == entities_f[i])
 
                             is_in_initial = np.any(np.all(entities_i == entities_f[i], axis=1))
@@ -510,12 +518,11 @@ class Trajectory:
                                     free_slot_idxs[entities_f[i, 0] - 1] = self.id_counter
                                 ads_changes[i] = free_slot_idxs[entities_f[i, 0] - 1]
 
-                            print(f'{is_in_initial}')
-                            print(ads_changes[i])
+                            #print(f'{is_in_initial}')
 
                         ads_ids[sites_inv] = ads_changes
-                        print(ads_ids[sites_inv])
-                        if 'NH3' in reaction_name: exit()
+                        #print(ads_ids[sites_inv])
+
                         # Append changes to deltas
                         self.delta_states.append( np.array([sites_inv, occs, dents, ads_ids[sites_inv]]) )
                         for gas_species in self.gas_species_names:
@@ -588,7 +595,8 @@ class Trajectory:
                         site_line = content[pos1 + 1 + site]
                         p = site_line.split()
                         st.occupation[site] = int(p[2])
-                        st.dentation[site] = int(p[3])
+                        st.dentates[site]  = int(p[3])
+                        st.ids[site]        = int(p[1])
                     
                     self.initial_state = st
 
@@ -599,6 +607,7 @@ class Trajectory:
                     occupation_prev = np.copy(self.initial_state.occupation)
                     occupation      = np.empty_like(occupation_prev)
                     dentation       = np.empty_like(occupation)
+                    ids             = np.empty_like(occupation)
 
                     # Get the rest of trajectory
                     for k in range(1, n_states):
@@ -618,10 +627,11 @@ class Trajectory:
                             p = site_line.split()
                             occupation[site] = int(p[2])
                             dentation[site] = int(p[3])
+                            ids[site]       = int(p[1])
 
                         # Get sites involved into a change and append changes to deltas
                         sites_inv = np.flatnonzero(occupation_prev == occupation)
-                        self.delta_states.append( np.array([sites_inv, occupation[sites_inv], dentation[sites_inv]]) )
+                        self.delta_states.append( np.array([sites_inv, occupation[sites_inv], dentation[sites_inv], ids[sites_inv]]) )
                         for i, gas_species in enumerate(self.gas_species_names):
                             self.gas_species_changes[gas_species][k-1] = int(content[pos + 1 + nsites].split()[i])
 
@@ -649,8 +659,6 @@ class Trajectory:
         if verbose:
             print(f"    Loaded {f'and cached ({size_mb:.1f} MB)' if cache else ''} {self.traj_path.name}: {self}.")
 
-        
-
 
     def unload(self, verbose=False):
         """
@@ -662,14 +670,16 @@ class Trajectory:
             If True, print detailed loading information.
         """
 
+        traj_repr = self.__repr__()
         self.initial_state = None
         self.delta_states = []
         self.gas_species_changes = dict()
         self.times = []
         self.energies = []
+        self.id_counter = 0
 
         if verbose:
-            print(f" {self.traj_path.name}: {self} unloaded.")
+            print(f" {self.traj_path.name}: {traj_repr} unloaded.")
 
 
     def clear_cache(self, verbose=False):
@@ -765,7 +775,12 @@ class Trajectory:
         # Determine which states to include based on fraction
         eq_idx = int((1.0 - fraction) * len(self))
         states_to_use = self[eq_idx:]
-        
+
+        if states_to_use is None:
+            print(f' get_rdf() of Trajectory: ')
+            print(f'   {self.traj_path.name}: failed to calculate rdf')
+            return None, None
+
         # Accumulate over all states in states_to_use
         r_bins, g_r_avg = states_to_use[0].get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, g_ref=g_ref)
         for st in states_to_use[1:]:
@@ -858,6 +873,10 @@ class Trajectory:
         # Determine number of snapshots to use based on fraction
         n_states = len(self)
         use_states = self[int(n_states * (1.0 - fraction)):]
+        if use_states is None:
+            print(f' get_accessibility_histogram() of Trajectory: ')
+            print(f'   {self.traj_path.name}: failed to calculate accessibilities')
+            return None, None
         # Maximum site coordination number
         max_coord = np.max(self.lattice.site_coordinations)
 
@@ -910,26 +929,43 @@ class Trajectory:
             for st in self[:]:
                 yield st.get_nads()
 
+        # Convert coverage_norm to array
+        if isinstance(coverage_norm, int) or isinstance(coverage_norm, float):
+            coverage_norm = coverage_norm * np.ones(self.n_surf_species + 1)
+        # Scale coverage for free sites
+        coverage_norm[0] *= self.lattice.n_cell_sites
+
         return self.times, np.vstack(list(cov_iter())) / (coverage_norm*self.lattice.n_cells)
 
-    def get_ads_path(self, idx, trim_zeros=False, verbose=False):
+    def get_ads_path(self, ads_id, dentate=1, trim=False, verbose=False):
         """
         Get the path of an adsorbate idx
         """
 
-        def ads_site_iter():
-            for st in self[:]:
-                yield st.get_ads_site(idx)
-
         n_states = len(self)
-        ads_path = np.fromiter(ads_site_iter(), dtype=int, count=n_states)
 
-        if trim_zeros:
-            return np.trim_zeros(ads_path, 'b')
+        # Initialize path array to -1
+        ads_path = - np.ones(n_states, dtype=int)
+
+        # Find a site occupied by dentate of ads_id in the initial state
+        sites = np.where((self.initial_state.ids == ads_id) * (self.initial_state.dentates == dentate))[0]
+        if len(sites) > 0:
+            ads_path[0] = sites[0]
+
+        # Get the respective sites from delta_states
+        for step, delta in enumerate(self.delta_states):
+            sites = np.where((delta[3] == ads_id) * (delta[2] == dentate))[0]
+            if len(sites) == 0:
+                ads_path[step + 1] = ads_path[step]
+            else:
+                ads_path[step + 1] = delta[0, sites[0]]
+            
+        if trim:
+            return np.trim_zeros(ads_path + 1, 'b') - 1
         else:
             return ads_path
 
-    def get_2d_lattice_indices(self, ads_id, expand = False):
+    def get_2d_lattice_indices(self, ads_id, dentate=1, expand = False, verbose=False):
         """
         Convert 1D lattice site indices to 2D matrix coordinates for a specific adsorbate.
         
@@ -950,11 +986,19 @@ class Trajectory:
         """
 
         # Get sites occupied by adsorbate with ads_id
-        sites = self.get_ads_path(ads_id, trim_zeros=True)
+        sites = self.get_ads_path(ads_id, dentate=dentate, trim=True)
+
+        # Initialize cols and rows arrays
+        cols = -np.ones(len(sites), dtype=int)
+        rows = -np.ones(len(sites), dtype=int)
+
+        # Trim the sites array from the front
+        sites_trim = np.trim_zeros(sites + 1, 'f') - 1
+        start = len(sites) - len(sites_trim)
 
         # Convert site indices to the 2D form    
-        cols = self.lattice.cols[sites]
-        rows = self.lattice.rows[sites]
+        cols[start:] = self.lattice.cols[sites]
+        rows[start:] = self.lattice.rows[sites]
 
         if expand:
 

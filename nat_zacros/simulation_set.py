@@ -219,10 +219,10 @@ class SimulationSet:
 
                 # Get the property from the results file if it exists and load is True
                 if load:
-                    results_file = self.simset_path / self.results_dirname / sim.dir.name / (property_key + '.dat')
+                    results_file = self.simset_path / self.results_dirname / sim.sim_path.name / (property_key + '.dat')
                     try:
                         data = np.loadtxt(results_file).T
-                        n_species = len(sim.metadata['surf_species_names'])
+                        n_species = sim.n_surf_species
                         results[key] = (data[0], data[1:1+n_species+1].T, data[1+n_species+1:].T)
                         if verbose:
                             print(f"Loaded {property_key} for simulation #{key} from {results_file}.")
@@ -248,7 +248,7 @@ class SimulationSet:
                     raise ValueError(f"Property {property_key} not supported.")
 
                 if save:
-                    results_file = self.simset_path / self.results_dirname / sim.dir.name / (property_key + '.dat')
+                    results_file = self.simset_path / self.results_dirname / sim.sim_path.name / (property_key + '.dat')
                 else:
                     results_file = None
 
@@ -338,9 +338,9 @@ class SimulationSet:
                 for key in self._arg_to_list(simulations):
                     if key in self.simulations.keys():
                         sim = self.simulations[key]
-                        #fname = self.simset_path / self.results_dirname / sim.dir.name / (fmt + '.dat')
-                        path = self.simset_path / self.results_dirname / sim.dir.name
-                        fnames = path.glob(f'{fmt}*.dat')
+                        #fname = self.simset_path / self.results_dirname / sim.sim_path.name / (fmt + '.dat')
+                        path = self.simset_path / self.results_dirname / sim.sim_path.name
+                        fnames = list(path.glob(f'{fmt}*.dat'))
                         counter += sim.clear_results(fnames, verbose=verbose)
                     else:
                         print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
@@ -349,10 +349,10 @@ class SimulationSet:
         if counter == 0:
             print("No valid targets specified for clearing. No files deleted.")
         else:
-            print(f"Deleted results for {counter} simulation(s).")
+            print(f"{counter} result file(s) deleted.")
 
 
-    def check_cache_status(self, simulations=None):
+    def check_cache_status(self, simulations=None, verbose=False):
         """
         Print a simple cache status table for selected simulations.
 
@@ -366,12 +366,11 @@ class SimulationSet:
             Simulation identifiers to check. ``None`` or ``'all'``
             selects all simulations in the set.
         """
-        sim_nums = self._get_simulation_numbers(simulations)
-        
+
         print(f"{'Sim #':<6} | {'RAM':<6} | {'Traj Cache':<14} | {'Results'}")
         print("-" * 60)
         
-        for sn in sim_nums:
+        for sn in self.simulations:
             res_dir = self.simset_path / self.results_dirname / str(sn)
             data_dir = self.simset_path / self.sims_dirname / str(sn)
             
@@ -383,10 +382,11 @@ class SimulationSet:
             traj_status = f"{len(traj_pkls)} pkls" if traj_pkls else "MISSING"
             
             # 3. Results Status
-            found_results = []
-            for label, filename in self._results_files.items():
-                if filename and (res_dir / filename).exists():
-                    found_results.append(label)
+            # found_results = []
+            # for label, filename in self._results_files.items():
+            #     if filename and (res_dir / filename).exists():
+            #         found_results.append(label)
+            found_results = [ d.name for d in (self.simset_path / self.results_dirname / str(sn)).rglob('*')]
             
             results_str = ", ".join(found_results) if found_results else "NONE"
             
@@ -567,8 +567,9 @@ class SimulationSet:
             else:
                 print(f'Warning: invalid simulation key {key} of {type(key)}. Ignoring.')
 
+
     def plot_energies(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, 
-                      show_eq=True, ylimit=None):
+                      show_eq=True, ylimit=None, coverage_norm=1):
         """Plot ensemble-averaged energy vs time for the loaded simulations.
         Parameters
         ----------
@@ -636,8 +637,11 @@ class SimulationSet:
                 x_label = 'Time (s)'
                 
             # Plot energy versus percent of total time on bottom axis; show time on top axis
+            covs = sim.nads0
+            sp_names = [sp[:-1] if sp.endswith('*') else sp for sp in list(sim.surf_species_names.keys()) if sp != '*']
+            cov_str =  ', '.join([fr'$\theta_{{{sp}}} = {{{covs[sp+'*']/ (coverage_norm*sim.lattice.n_cells):.3f}}}$' for sp in sp_names])
             title = f'Simulation #{key}:' \
-                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+                    fr'  $T=${sim.input_pars["temperature"][0]} K, ' + cov_str 
             if show_eq:
                 title += f' ({fraction*100:.0f}%)'
             ax.set_title(title, fontsize = title_fontsize)
@@ -759,7 +763,7 @@ class SimulationSet:
             # Plot leed_intensity versus percent of total time on bottom axis; show time on top axis
             ax.grid()
             title = f'Simulation #{key}:' \
-                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+                    fr'  $T={sim.input_pars["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
             ax.set_title(title, fontsize = title_fontsize)
 
             if len(times_plot) > 0 and times_plot[-1] != 0:
@@ -798,7 +802,7 @@ class SimulationSet:
 
     def plot_coverages(self, covs_vs_time, ncols=3, figsize=(12,2.5), 
                        title_fontsize=10, suptitle_fontsize=16, 
-                       fit=None, show_eq=True, species=None):
+                       fit=None, show_eq=True, species=None, coverage_norm=1):
         """Plot ensemble-averaged coverages vs time for the loaded simulations.
         Parameters
         ----------
@@ -869,8 +873,12 @@ class SimulationSet:
                 
             # Plot coverage versus percent of total time on bottom axis; show time on top axis
             ax.grid()
+            covs0 = sim.nads0
+            sp_names = [sp[:-1] if sp.endswith('*') else sp for sp in list(sim.surf_species_names.keys()) if sp != '*']
+            cov_str =  ', '.join([fr'$\theta_{{{sp}}} = {{{covs0[sp+'*']/ (coverage_norm*sim.lattice.n_cells):.3f}}}$' for sp in sp_names])
             title = f'Simulation #{key}:' \
-                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+                    fr'  $T=${sim.input_pars["temperature"][0]} K, ' + cov_str 
+
             if show_eq:
                 title += f' ({fraction*100:.0f}%)'
             ax.set_title(title, fontsize = title_fontsize)
@@ -885,15 +893,15 @@ class SimulationSet:
                 # Find indices for requested species
                 species_indices = []
                 for sp in species_list:
-                    if sp in sim.metadata["surf_species_names"]:
-                        # Add 1 because covs[:,0] is total coverage
-                        idx = sim.metadata["surf_species_names"].index(sp) + 1
+                    if sp in sim.input_pars["surf_specs_names"]:
+                        # Add 1 because covs[:,0] is for free sites
+                        idx =sim.input_pars["surf_specs_names"].index(sp) + 1
                         species_indices.append(idx)
                     else:
                         print(f"Warning: Species '{sp}' not found in simulation {key}. Available: {sim.metadata['surf_species_names']}")
 
             for i in species_indices:
-                ax.plot(times_plot, covs[:,i], 'k-', label=f'{sim.metadata["surf_species_names"][i-1]}')
+                ax.plot(times_plot, covs[:,i], label=f'{sim.input_pars["surf_specs_names"][i-1]}')
 
             if len(species_indices) == 1 and fit is not None:
                 par_str = ' '.join([f'{f:0.1e}' for f in fit[key][1]])
@@ -964,7 +972,7 @@ class SimulationSet:
             data = rdfs[key]
             ax = axes[isim//ncols, isim%ncols]
             title = f'Simulation #{key}:' \
-                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+                    fr'  $T={sim.input_pars["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
             ax.set_title(title, fontsize = title_fontsize)
 
             if data is None:
@@ -1029,7 +1037,7 @@ class SimulationSet:
             data = accessibilities[key]
             ax = axes[isim//ncols, isim%ncols]
             title = f'Simulation #{key}:' \
-                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+                    fr'  $T={sim.input_pars["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
             ax.set_title(title, fontsize=title_fontsize)
 
             if data is None:
@@ -1101,7 +1109,7 @@ class SimulationSet:
             data = clusters[key]
             ax = axes[isim//ncols, isim%ncols]
             title = f'Simulation #{key}:' \
-                    fr'  $T={sim.metadata["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
+                    fr'  $T={sim.input_pars["temperature"]}$ K, $\theta={sim.metadata["coverage"]:.3f}$' 
             ax.set_title(title, fontsize=title_fontsize)
 
             if data is None:

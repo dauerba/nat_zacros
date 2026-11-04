@@ -240,13 +240,14 @@ class Simulation:
         if verbose:
             print(f"Unloading simulation {self.sim_path.name} from memory...")
 
+        n_states = sum(len(t) for t in self.trajectories.values())
+
         for traj in self.trajectories.values():
             traj.unload(verbose=verbose)
         self.is_loaded = False
 
         if verbose:
-            print(f"Unloaded {len(self.trajectories)} trajectories")
-            print(f"  Total states: {sum(len(t.states) for t in self.trajectories.values())}")
+            print(f"Unloaded {len(self.trajectories)} trajectories with {n_states} states in total")
 
 
 
@@ -291,7 +292,7 @@ class Simulation:
             files_to_clear = [fnames]
 
         counter = 0
-        for file in fnames:
+        for file in files_to_clear:
             file = Path(file)
             if file.exists():
                 file.unlink()
@@ -390,8 +391,8 @@ class Simulation:
         """
 
         # Set defaults and update from pars_dict
-        pars = {'species_1': self.metadata['surf_species_names'][0], 
-                'species_2': self.metadata['surf_species_names'][0], 
+        pars = {'species_1': self.input_pars['surf_specs_names'][0], 
+                'species_2': self.input_pars['surf_specs_names'][0], 
                 'r_max': 40.0, 'dr': 0.1, 'fraction': 1.0, 'normalize': True}
         if pars_dict is not None:
             pars.update(pars_dict)
@@ -427,13 +428,18 @@ class Simulation:
         rdfs = []
         for traj in self.trajectories.values():
             r, g = traj.get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, fraction=fraction, g_ref=g_ref)
-            rdfs.append(g)
+            if g is not None:
+                rdfs.append(g)
         
         # Ensemble average
         g_avg = np.mean(rdfs, axis=0)
+        if np.any(np.isnan(g_avg)):
+            print(f'get_ensemble_rdf() of Simulation:')
+            print(f'  unable to get rdf for {self}')
+
 
         # Save RDF data and g_ref (if present) to per-simulation folder
-        if file is not None:
+        if file is not None and not np.any(np.isnan(g_avg)):
             Path(file).parent.mkdir(parents=True, exist_ok=True)
             if normalize:
                 np.savetxt(file_sp, np.column_stack((r, g_avg, g_ref)),
@@ -506,9 +512,16 @@ class Simulation:
         f2  = []
         for traj in self.trajectories.values():
             freq_13, freq_2 = traj.get_accessibility_histogram(fraction=fraction)
-            f13.append(freq_13)
-            f2.append(freq_2)
-        
+            if freq_13 is not None:
+                f13.append(freq_13)
+                f2.append(freq_2)
+
+        # Use f13 to decide if calculation was successful
+        if len(f13) == 0:
+            print(f'get_ensemble_accessibility() of Simulation:')
+            print(f'  unable to get ensemble accessibility for {self}')
+            return [None] * 4
+
         frequencies_13 = np.array(f13)
         frequency_13_avg = np.mean(frequencies_13, axis=0)
         frequency_13_std = np.std(frequencies_13, axis=0)
@@ -600,12 +613,27 @@ class Simulation:
 
         if len(self.trajectories) == 0:
             raise RuntimeError(
-                "No trajectories loaded. Call load() first."
+                "No trajectories available."
             )
         
         # Find common time range across all trajectories
-        end_time = min([traj.times[-1] for traj in self.trajectories.values()])
-        start_time = max([traj.times[0] for traj in self.trajectories.values()])
+        end_times   = []
+        start_times = []
+        for traj in self.trajectories.values():
+            if traj.initial_state is None:
+                print(f'  {traj.traj_path.name} is not loaded.')
+            else:
+                end_times.append(traj.times[-1])
+                start_times.append(traj.times[0])
+
+        if len(end_times) == 0:
+            print('get_ensemble_energy_vs_time() of Simulation:')
+            print(f'  ensemble energy averaging failed for')
+            print(f'    {self}')
+            return [None] * 3
+
+        end_time   = min(end_times)
+        start_time = max(start_times)
         
         # Create time bins for discretization
         time_edges = np.linspace(start_time, end_time, n_bins + 1)
@@ -900,23 +928,38 @@ class Simulation:
         """
         
         # Set defaults and update from pars_dict
-        pars = {'n_bins': 100, 'atoms_per_uc': 1}
+        pars = {'n_bins': 100, 'coverage_norm': 1}
         if pars_dict is not None:
             pars.update(pars_dict)
         
         n_bins = pars['n_bins']
-        atoms_per_uc = pars['atoms_per_uc']
+        coverage_norm = pars['coverage_norm']
         if n_bins <= 0:
             raise ValueError("The value of n_bins must be a positive integer.")
 
         if len(self.trajectories) == 0:
             raise RuntimeError(
-                "No trajectories loaded. Call load() first."
+                "No trajectories found."
             )
         
         # Find common time range across all trajectories
-        end_time = min([traj.times[-1] for traj in self.trajectories.values()])
-        start_time = max([traj.times[0] for traj in self.trajectories.values()])
+        end_times   = []
+        start_times = []
+        for traj in self.trajectories.values():
+            if traj.initial_state is None:
+                print(f'  {traj.traj_path.name} is not loaded.')
+            else:
+                end_times.append(traj.times[-1])
+                start_times.append(traj.times[0])
+
+        if len(end_times) == 0:
+            print('get_ensemble_coverages_vs_time() of Simulation:')
+            print(f'  ensemble coverage averaging failed for')
+            print(f'    {self}')
+            return [None] * 3
+
+        end_time   = min(end_times)
+        start_time = max(start_times)
         
         # Create time bins for discretization
         time_edges = np.linspace(start_time, end_time, n_bins + 1)
@@ -924,9 +967,10 @@ class Simulation:
         
         # STAGE 1: Intra-trajectory averaging
         # For each trajectory, bin its energy measurements and average within bins
-        hists = np.empty((len(self), n_bins, len(self.metadata["surf_species_names"])+1))
+        hists = np.empty((len(self), n_bins, self.n_surf_species + 1))
         for itraj, traj in enumerate(self.trajectories.values()):
-            times, coverages = traj.get_coverages_vs_time(atoms_per_uc=atoms_per_uc)
+            times, coverages = traj.get_coverages_vs_time(coverage_norm=coverage_norm, 
+                                                          verbose=verbose)
             
             # Initialize binned energy and sample counts for this trajectory
             hist   = np.zeros((n_bins + 2, coverages.shape[1]))
@@ -979,7 +1023,7 @@ class Simulation:
         # Save time series data to file
         if file is not None:
             Path(file).parent.mkdir(parents=True, exist_ok=True)
-            sp = ['*'] + self.metadata['surf_species_names']
+            sp = ['*'] + self.input_pars['surf_specs_names']
             cov_header = ' '.join(['cov_'+s+'_ML' for s in sp])
             std_header = ' '.join(['std_'+s+'_ML' for s in sp])
             np.savetxt(file, 
