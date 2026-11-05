@@ -331,7 +331,7 @@ class State:
             partial coverages of surface species, 
             index 0 refers to the coverage of empty sites
         """
-        return np.bincount(self.occupation) // self.dent_lookup
+        return np.bincount(self.occupation, minlength=self.dent_lookup.size) // self.dent_lookup
 
     
     def get_leed_intensity(self, distances, r):

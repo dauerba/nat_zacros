@@ -160,9 +160,14 @@ class Trajectory:
         """
 
         if isinstance(idx, int):
-            start = 0
-            stop = idx + 1
-            step  = stop
+            if idx < 0:
+               start = len(self) + idx
+               stop  = len(self)
+               step  = stop 
+            else:
+                start = 0
+                stop = idx + 1
+                step  = stop
         elif isinstance(idx, slice):
             start = idx.start or 0          
             stop  = idx.stop  or len(self)
