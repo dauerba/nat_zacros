@@ -307,7 +307,7 @@ class Lattice:
         return abs(v1[0] * v2[1] - v1[1] * v2[0])
 
 
-    def plot(self, ax=None, scaling=1, markers=None, colors=None, legend=True,
+    def plot(self, ax=None, scaling=1, markers=None, colors=None, legend=True, labels=False,
                     show_axis = True, link=True, figsize = (8,6), legend_loc = 'outside center right',
                     show_unit_cell=True):
         """Plot the lattice.
@@ -381,12 +381,18 @@ class Lattice:
             ax.scatter(x[ids], y[ids], color=colors[i_st], marker= markers[i_st], s=size, 
                     label= self.site_type_names[i_st])
 
+        if labels:
+            for i in range(len(x)):
+                ax.text(x[i], y[i], str(i+1), fontsize=6*scaling, ha='center', va='center')
+
         if legend:
             fig.legend(loc=legend_loc, frameon=True)
         if not show_axis:
             ax.axis('off')
 
         plt.show()
+        
+        return fig
                     
     def __repr__(self):
         """String representation of Lattice class"""
