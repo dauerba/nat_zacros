@@ -405,6 +405,9 @@ class Trajectory:
                 with open(self.traj_path / 'general_output.txt', 'r') as f: 
                     content = f.readlines()
 
+                if not ('> Normal termination <' in content[-1]):
+                    raise FileExistsError(f"Abnormal termination of {self.traj_path.name}.")
+
                 # Initialize the initial state object
                 st = State(self.lattice, self.input_pars, traj_path=self.traj_path)
 
@@ -539,10 +542,10 @@ class Trajectory:
                     if verbose:
                         print(f'      Failed to load the initial state.')
 
-            except FileExistsError:
+            except FileExistsError as e:
                 if verbose:
                     print(f"      Loading failed.")
-                    print(f'         Error:{FileExistsError}')
+                    print(f'         Error: {e}')
 
         else: # event_report off: loading from history_output.txt
 

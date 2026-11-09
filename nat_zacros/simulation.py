@@ -427,9 +427,10 @@ class Simulation:
         # Compute RDF for each trajectory
         rdfs = []
         for traj in self.trajectories.values():
-            r, g = traj.get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, fraction=fraction, g_ref=g_ref)
-            if g is not None:
-                rdfs.append(g)
+            if len(traj) > 0:
+                r, g = traj.get_rdf(species_1, species_2, distances, r_max=r_max, dr=dr, fraction=fraction, g_ref=g_ref)
+                if g is not None:
+                    rdfs.append(g)
         
         # Ensemble average
         g_avg = np.mean(rdfs, axis=0)
@@ -511,10 +512,11 @@ class Simulation:
         f13 = []
         f2  = []
         for traj in self.trajectories.values():
-            freq_13, freq_2 = traj.get_accessibility_histogram(fraction=fraction)
-            if freq_13 is not None:
-                f13.append(freq_13)
-                f2.append(freq_2)
+            if len(traj) > 0:
+                freq_13, freq_2 = traj.get_accessibility_histogram(fraction=fraction)
+                if freq_13 is not None:
+                    f13.append(freq_13)
+                    f2.append(freq_2)
 
         # Use f13 to decide if calculation was successful
         if len(f13) == 0:
@@ -642,40 +644,41 @@ class Simulation:
         # STAGE 1: Intra-trajectory averaging
         # For each trajectory, bin its energy measurements and average within bins
         hists = np.empty((len(self), n_bins))
-        for itraj, traj in enumerate(self.trajectories.values()):
-            times, energies = traj.get_energy_vs_time()
-            
-            # Initialize binned energy and sample counts for this trajectory
-            # extended with bins before start_time (0) and after end_time (n_bins + 1)
-            hist = np.zeros(n_bins + 2)
-            counts = np.zeros(n_bins + 2)
+        for itraj, traj in enumerate(self.trajectories.values()): 
+            if len(traj) > 0:
+                times, energies = traj.get_energy_vs_time()
+                
+                # Initialize binned energy and sample counts for this trajectory
+                # extended with bins before start_time (0) and after end_time (n_bins + 1)
+                hist = np.zeros(n_bins + 2)
+                counts = np.zeros(n_bins + 2)
 
-            # get arrays of bin indices and their differences
-            bin_idxs = np.digitize(times, time_edges, right=False)
-            idx_diffs = np.diff(bin_idxs)
+                # get arrays of bin indices and their differences
+                bin_idxs = np.digitize(times, time_edges, right=False)
+                idx_diffs = np.diff(bin_idxs)
 
-            # Put the initial energy value into the histogram
-            hist[bin_idxs[0]] += energies[0]
-            counts[bin_idxs[0]] += 1
+                # Put the initial energy value into the histogram
+                hist[bin_idxs[0]] += energies[0]
+                counts[bin_idxs[0]] += 1
 
-            # Looping over the rest of trajectory
-            for i in range(1, len(bin_idxs)):
+                # Looping over the rest of trajectory
+                for i in range(1, len(bin_idxs)):
 
-                # put energy value into its bin
-                hist[bin_idxs[i]] += energies[i]
-                counts[bin_idxs[i]] += 1  # Track number of samples per bin
+                    # put energy value into its bin
+                    hist[bin_idxs[i]] += energies[i]
+                    counts[bin_idxs[i]] += 1  # Track number of samples per bin
 
-                # put the previous energy value into bins jumped over
-                if idx_diffs[i-1] > 1:
-                    hist[bin_idxs[i-1] + 1 : bin_idxs[i] ] += energies[i-1]*np.ones(idx_diffs[i-1] - 1)
-                    counts[bin_idxs[i-1] + 1 : bin_idxs[i] ] += np.ones(idx_diffs[i-1] - 1, dtype=int)
+                    # put the previous energy value into bins jumped over
+                    if idx_diffs[i-1] > 1:
+                        hist[bin_idxs[i-1] + 1 : bin_idxs[i] ] += energies[i-1]*np.ones(idx_diffs[i-1] - 1)
+                        counts[bin_idxs[i-1] + 1 : bin_idxs[i] ] += np.ones(idx_diffs[i-1] - 1, dtype=int)
 
-            # Average within each bin (multiple measurements → single value per bin)
-            # This gives us one representative energy value per time bin for THIS trajectory
-            # with np.errstate(divide='ignore', invalid='ignore'):
-            #     hist = np.where(counts > 0, hist / counts, np.nan)
-            
-            hists[itraj,:] = hist[1:-1] / counts[1:-1]
+                # Average within each bin (multiple measurements → single value per bin)
+                # This gives us one representative energy value per time bin for THIS trajectory
+                # with np.errstate(divide='ignore', invalid='ignore'):
+                #     hist = np.where(counts > 0, hist / counts, np.nan)
+                
+                hists[itraj,:] = hist[1:-1] / counts[1:-1]
         
         # STAGE 2: Inter-trajectory (ensemble) averaging
         # Each trajectory now contributes exactly one value per time bin
@@ -767,26 +770,27 @@ class Simulation:
         # For each trajectory, bin its measurements and average within bins
         hists = []
         for traj in self.trajectories.values():
-            times, intensities = traj.get_leed_intensity_vs_time(distances, r)
-            
-            # Initialize binned values and sample counts for this trajectory
-            hist = np.zeros(n_bins)
-            counts = np.zeros(n_bins)
-            
-            # Accumulate measurements into bins
-            for t, intensity in zip(times, intensities):
-                if start_time <= t <= end_time:
-                    bin_idx = np.digitize(t, time_bins, right=False) - 1
-                    if 0 <= bin_idx < n_bins:
-                        hist[bin_idx] += intensity
-                        counts[bin_idx] += 1  # Track number of samples per bin
-            
-            # Average within each bin (multiple measurements → single value per bin)
-            # This gives us one representative value per time bin for THIS trajectory
-            with np.errstate(divide='ignore', invalid='ignore'):
-                hist = np.where(counts > 0, hist / counts, np.nan)
-            
-            hists.append(hist)
+            if len(traj) > 0:
+                times, intensities = traj.get_leed_intensity_vs_time(distances, r)
+                
+                # Initialize binned values and sample counts for this trajectory
+                hist = np.zeros(n_bins)
+                counts = np.zeros(n_bins)
+                
+                # Accumulate measurements into bins
+                for t, intensity in zip(times, intensities):
+                    if start_time <= t <= end_time:
+                        bin_idx = np.digitize(t, time_bins, right=False) - 1
+                        if 0 <= bin_idx < n_bins:
+                            hist[bin_idx] += intensity
+                            counts[bin_idx] += 1  # Track number of samples per bin
+                
+                # Average within each bin (multiple measurements → single value per bin)
+                # This gives us one representative value per time bin for THIS trajectory
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    hist = np.where(counts > 0, hist / counts, np.nan)
+                
+                hists.append(hist)
         
         # STAGE 2: Inter-trajectory (ensemble) averaging
         # Each trajectory now contributes exactly one value per time bin
@@ -863,9 +867,10 @@ class Simulation:
         freqs_avg = np.zeros(self.lattice.n_sites)
         freqs_std = np.zeros(self.lattice.n_sites)
         for traj in self.trajectories.values():
-            freqs = traj.get_cluster_size_freqs(cutoff=cutoff, eps=eps, fraction=fraction, method=method)
-            freqs_avg += freqs
-            freqs_std += freqs*freqs
+            if len(traj) > 0:
+                freqs = traj.get_cluster_size_freqs(cutoff=cutoff, eps=eps, fraction=fraction, method=method)
+                freqs_avg += freqs
+                freqs_std += freqs*freqs
 
         # Gete average
         freqs_avg /= n_trajs
@@ -969,39 +974,40 @@ class Simulation:
         # For each trajectory, bin its energy measurements and average within bins
         hists = np.empty((len(self), n_bins, self.n_surf_species + 1))
         for itraj, traj in enumerate(self.trajectories.values()):
-            times, coverages = traj.get_coverages_vs_time(coverage_norm=coverage_norm, 
-                                                          verbose=verbose)
-            
-            # Initialize binned energy and sample counts for this trajectory
-            hist   = np.zeros((n_bins + 2, coverages.shape[1]))
-            counts = np.zeros(n_bins + 2)
-            
-            # get arrays of bin indices and their differences
-            bin_idxs = np.digitize(times, time_edges, right=False)
-            idx_diffs = np.diff(bin_idxs)
+            if len(traj) > 0:
+                times, coverages = traj.get_coverages_vs_time(coverage_norm=coverage_norm, 
+                                                            verbose=verbose)
+                
+                # Initialize binned energy and sample counts for this trajectory
+                hist   = np.zeros((n_bins + 2, coverages.shape[1]))
+                counts = np.zeros(n_bins + 2)
+                
+                # get arrays of bin indices and their differences
+                bin_idxs = np.digitize(times, time_edges, right=False)
+                idx_diffs = np.diff(bin_idxs)
 
-            # Put the initial value into the histogram
-            hist[bin_idxs[0], :] += coverages[0]
-            counts[bin_idxs[0]] += 1
+                # Put the initial value into the histogram
+                hist[bin_idxs[0], :] += coverages[0]
+                counts[bin_idxs[0]] += 1
 
-            # Looping over the rest of trajectory
-            for i in range(1, len(bin_idxs)):
+                # Looping over the rest of trajectory
+                for i in range(1, len(bin_idxs)):
 
-                # put a value into its bin
-                hist[bin_idxs[i], :] += coverages[i]
-                counts[bin_idxs[i]] += 1  # Track number of samples per bin
+                    # put a value into its bin
+                    hist[bin_idxs[i], :] += coverages[i]
+                    counts[bin_idxs[i]] += 1  # Track number of samples per bin
 
-                # put the previous value into bins jumped over
-                if idx_diffs[i-1] > 1:
-                    hist[bin_idxs[i-1] + 1 : bin_idxs[i], :] += np.tile(coverages[i-1], (idx_diffs[i-1] - 1,1))
-                    counts[bin_idxs[i-1] + 1 : bin_idxs[i] ] += np.ones(idx_diffs[i-1] - 1, dtype=int)
+                    # put the previous value into bins jumped over
+                    if idx_diffs[i-1] > 1:
+                        hist[bin_idxs[i-1] + 1 : bin_idxs[i], :] += np.tile(coverages[i-1], (idx_diffs[i-1] - 1,1))
+                        counts[bin_idxs[i-1] + 1 : bin_idxs[i] ] += np.ones(idx_diffs[i-1] - 1, dtype=int)
 
-            
-            # Average within each bin (multiple measurements → single value per bin)
-            # This gives us one representative value per time bin for THIS trajectory
-            # hist = np.divide(hist, counts[:, np.newaxis], out=np.full_like(hist, np.nan), where=counts[:, np.newaxis] > 0)
-            
-            hists[itraj, :, :] = hist[1:-1, :] / counts[1:-1, None]
+                
+                # Average within each bin (multiple measurements → single value per bin)
+                # This gives us one representative value per time bin for THIS trajectory
+                # hist = np.divide(hist, counts[:, np.newaxis], out=np.full_like(hist, np.nan), where=counts[:, np.newaxis] > 0)
+                
+                hists[itraj, :, :] = hist[1:-1, :] / counts[1:-1, None]
         
         # STAGE 2: Inter-trajectory (ensemble) averaging
         # Each trajectory now contributes exactly one value per time bin
