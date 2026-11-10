@@ -269,6 +269,47 @@ class Trajectory:
 
         return input_pars
         
+    def get_general_info(self, verbose=False):
+
+        # Load simulation_input.dat as a dict
+        # accounting for comments marked with '#'
+        # assuming the first entry to be a key
+
+        en_clusters = dict()
+        rates_info = dict()
+        try:
+            with open(self.traj_path / 'general_output.txt', 'r') as f: 
+                for line in f:
+                    if 'Energetics setup:' in line:
+                        n_clusters = int([f.readline() for i in range(3)][-1].split()[-1])
+                        [f.readline() for i in range(5)]
+                        for i in range(n_clusters):
+                            l = f.readline().split()
+                            en_clusters[l[1][:-1]] = (float(l[7]), # ECI, eV 
+                                                 int(l[4]),   # multiplicity
+                                                 l[9:])       # entities involved
+
+                    if 'Mechanism setup:' in line:
+                        n_el_steps = int([f.readline() for i in range(3)][-1].split()[-1])
+                        [f.readline() for i in range(5)]
+                        for _ in range(n_el_steps):
+                            lspt = f.readline().split('=')
+                            key = lspt[0].split()[1].strip()[:-1]
+                            rates_info[key] = [float(l.split()[0]) for l in lspt[1:]]
+        except:
+            print(f"Cannot get cluster and rates info from general_output.txt")
+
+        if verbose:
+            print(f'Energetics clusters read for trajectory: {self.traj_path}:')
+            for k, v in en_clusters.items():
+                print(f'  {k} : {v}')
+            print(f'Rates info read for trajectory: {self.traj_path}:')
+            for k, v in rates_info.items():
+                print(f'  {k} : {v}')
+
+        return en_clusters, rates_info
+        
+
     def _parse_reaction_mechanism(self, verbose=False):
         # Load mechanism_input.dat
 
