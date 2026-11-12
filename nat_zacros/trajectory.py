@@ -84,8 +84,7 @@ class Trajectory:
         self.surf_species_dent['*'] = 1
 
         # Get the initial seed from state_input
-        self.nads0 = self._get_initial_nads() if len(self._get_initial_nads()) > 0 \
-                                              else dict(zip(self.input_pars['surf_specs_names'], [0] * self.n_surf_species))
+        self.nads0 = self._get_initial_nads()
 
         if reactions is None:
             # Initialize dictionaries
@@ -216,7 +215,10 @@ class Trajectory:
 
         # Load state_input.dat 
         # accounting for comments marked with '#'
-        nads = dict()
+
+        # Initialize the adsorbate dict
+        nads = dict(zip(self.input_pars['surf_specs_names'], [0] * self.n_surf_species))
+
         try:
             with open(self.traj_path / 'state_input.dat') as f:
                 for line in f:

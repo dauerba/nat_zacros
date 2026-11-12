@@ -569,7 +569,7 @@ class SimulationSet:
 
 
     def plot_energies(self, energies_vs_time, ncols=3, figsize=(12,2.5), title_fontsize=10, suptitle_fontsize=16, 
-                      show_eq=True, ylimit=None, coverage_norm=1):
+                      show_eq=True, ylimit=None, coverage_norm=1, verbose=False):
         """Plot ensemble-averaged energy vs time for the loaded simulations.
         Parameters
         ----------
@@ -637,9 +637,8 @@ class SimulationSet:
                 x_label = 'Time (s)'
                 
             # Plot energy versus percent of total time on bottom axis; show time on top axis
-            covs = sim.nads0
             sp_names = [sp[:-1] if sp.endswith('*') else sp for sp in list(sim.surf_species_names.keys()) if sp != '*']
-            cov_str =  ', '.join([fr'$\theta_{{{sp}}} = {{{covs[sp+'*']/ (coverage_norm*sim.lattice.n_cells):.3f}}}$' for sp in sp_names])
+            cov_str =  ', '.join([fr'$\theta_{{{sp}}} = {{{sim.nads0[sp+'*']/ (coverage_norm*sim.lattice.n_cells):.3f}}}$' for sp in sp_names])
             title = f'Simulation #{key}:' \
                     fr'  $T=${sim.input_pars["temperature"][0]} K, ' + cov_str 
             if show_eq:
