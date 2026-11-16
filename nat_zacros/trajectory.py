@@ -423,6 +423,10 @@ class Trajectory:
         if verbose:
             print(f'  Loading trajectory {str(self.traj_path)}...')
 
+        # Temporary fix: see TODO below
+        if len(self) != 0:
+            print(f'  {self} is already loaded. Skipping...')
+           
         # Try loading from cache
         if cache:
             if self.cache_file.exists():
@@ -702,6 +706,11 @@ class Trajectory:
                     print(f'         Error:{FileExistsError}')
 
         # Save to cache
+        # ---------------------------------------------------------------------------------------
+        # TODO: Deal with corrupted pkl files (for example, when interrupting the loading)
+        #       Consider to either blocking the reloading of the loaded trajectory or 
+        #       automatic unloading before the reload
+        # ---------------------------------------------------------------------------------------
         if cache:
             with open(self.cache_file, 'wb') as f:
                 pickle.dump([self.initial_state, self.delta_states, self.gas_species_changes, self.times, self.energies], f)
