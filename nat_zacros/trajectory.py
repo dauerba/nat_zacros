@@ -997,7 +997,7 @@ class Trajectory:
 
         return self.times, np.vstack(list(cov_iter())) / (coverage_norm*self.lattice.n_cells)
 
-    def get_ads_path(self, ads_id, dentate=1, trim=False, verbose=False):
+    def get_ads_path(self, ads_id, dentate=1, verbose=False):
         """
         Get the path of an adsorbate idx
         """
@@ -1006,6 +1006,8 @@ class Trajectory:
 
         # Initialize path array to -1
         ads_path = - np.ones(n_states, dtype=int)
+        start = 0
+        end = len(ads_path)
 
         # Find a site occupied by dentate of ads_id in the initial state
         sites = np.where((self.initial_state.ids == ads_id) * (self.initial_state.dentates == dentate))[0]
@@ -1019,13 +1021,18 @@ class Trajectory:
                 ads_path[step + 1] = ads_path[step]
             else:
                 ads_path[step + 1] = delta[0, sites[0]]
-            
-        if trim:
-            return np.trim_zeros(ads_path + 1, 'b') - 1
-        else:
-            return ads_path
 
-    def get_2d_lattice_indices(self, ads_id, dentate=1, expand = False, verbose=False):
+        # Get the slice indices for trimming
+        ads_path_idxs = np.where(ads_path > -1)[0]
+        if len(ads_path_idxs) > 0: 
+            start = ads_path_idxs[0]
+            end   = ads_path_idxs[-1] + 1
+        else:
+            start, end = 0, 0
+
+        return ads_path, start, end
+
+    def get_2d_lattice_indices(self, sites, expand = False, verbose=False):
         """
         Convert 1D lattice site indices to 2D matrix coordinates for a specific adsorbate.
         
@@ -1045,20 +1052,12 @@ class Trajectory:
             
         """
 
-        # Get sites occupied by adsorbate with ads_id
-        sites = self.get_ads_path(ads_id, dentate=dentate, trim=True)
-
-        # Initialize cols and rows arrays
-        cols = -np.ones(len(sites), dtype=int)
-        rows = -np.ones(len(sites), dtype=int)
-
-        # Trim the sites array from the front
-        sites_trim = np.trim_zeros(sites + 1, 'f') - 1
-        start = len(sites) - len(sites_trim)
+        if len(sites) == 0:
+            return [], []
 
         # Convert site indices to the 2D form    
-        cols[start:] = self.lattice.cols[sites]
-        rows[start:] = self.lattice.rows[sites]
+        cols = self.lattice.cols[sites]
+        rows = self.lattice.rows[sites]
 
         if expand:
 
