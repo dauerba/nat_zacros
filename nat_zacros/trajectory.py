@@ -511,77 +511,73 @@ class Trajectory:
                     ads_ids = np.copy(self.initial_state.ids)
 
                     # Find the 1st line with kmc step
+                    k = 0
                     for iline, line in enumerate(content):
-                        if 'KMC step' in line: break                        
+                        if 'KMC step' in line:
+                            k += 1
+                            # Get the state info:
+                            # kmc step
+                            step = int(line.split()[-1])
+                            # reaction
+                            reaction_name = content[iline+1].split()[-1]
+                            # time
+                            time = float(content[iline+2].split()[-1])
+                            # sites involved
+                            sites_inv = np.array([ int(s) - 1 for s in content[iline+3].split()[2:] ])
+                            # change of the energy
+                            delta_en = float(content[iline+7].split()[-1])
 
-                    # Loop to get states forming the trajectory
-                    for k in range(1, n_states):
+                            self.times[k] = time
+                            self.energies[k] = delta_en + self.energies[k-1]
+                            # Get the changes and append them to deltas
+                            occs  = np.array(self.reactions_surf_f[reaction_name][:,1], dtype=int)
+                            dents = np.array(self.reactions_surf_f[reaction_name][:,2], dtype=int)
+                            entities_i = self.reactions_surf_i[reaction_name][:,:2]
+                            entities_f = self.reactions_surf_f[reaction_name][:,:2]
 
-                        # Get the state info:
-                        # kmc step
-                        step = int(line.split()[-1])
-                        # reaction
-                        reaction_name = content[iline+1].split()[-1]
-                        # time
-                        time = float(content[iline+2].split()[-1])
-                        # sites involved
-                        sites_inv = np.array([ int(s) - 1 for s in content[iline+3].split()[2:] ])
-                        # change of the energy
-                        delta_en = float(content[iline+7].split()[-1])
+                            #print(f'\n Initial state ids: {ads_ids[sites_inv]}')
+                            #print(f'\n Entities initial: {entities_i}')
+                            #print(f' Entities   final: {entities_f}')
+                            #print(f' Occupation final: {occs}')
+                            #print(f' Dentation  final: {dents}')
 
-                        # Shift the line index to the next KMC step record
-                        iline += 9
-                        self.times[k] = time
-                        self.energies[k] = delta_en + self.energies[k-1]
-                        # Get the changes and append them to deltas
-                        occs  = np.array(self.reactions_surf_f[reaction_name][:,1], dtype=int)
-                        dents = np.array(self.reactions_surf_f[reaction_name][:,2], dtype=int)
-                        entities_i = self.reactions_surf_i[reaction_name][:,:2]
-                        entities_f = self.reactions_surf_f[reaction_name][:,:2]
+                            ads_changes = np.zeros(len(sites_inv), dtype=int)
 
-                        #print(f'\n Initial state ids: {ads_ids[sites_inv]}')
-                        #print(f'\n Entities initial: {entities_i}')
-                        #print(f' Entities   final: {entities_f}')
-                        #print(f' Occupation final: {occs}')
-                        #print(f' Dentation  final: {dents}')
+                            for i in range(len(sites_inv)):
+                                
+                                #print(f'initial: {entities_i[i]}')
+                                #print(entities_f == entities_i[i])
 
-                        ads_changes = np.zeros(len(sites_inv), dtype=int)
+                                # Get final sites of an adsorbate which was in site i before reaction
+                                idxs_of_matches = np.where(np.all(entities_f == entities_i[i], axis=1))[0]
+                                # Get the changes
+                                ads_changes[idxs_of_matches] = ads_ids[sites_inv[i]]
 
-                        for i in range(len(sites_inv)):
-                            
-                            #print(f'initial: {entities_i[i]}')
-                            #print(entities_f == entities_i[i])
+                                #print(f'{np.all(entities_f == entities_i[i], axis=1)}')
+                                #print(ads_ids[sites_inv[i]], idxs_of_matches)
 
-                            # Get final sites of an adsorbate which was in site i before reaction
-                            idxs_of_matches = np.where(np.all(entities_f == entities_i[i], axis=1))[0]
-                            # Get the changes
-                            ads_changes[idxs_of_matches] = ads_ids[sites_inv[i]]
+                            free_slot_idxs = np.zeros(len(sites_inv), dtype=int)
+                            for i in range(len(sites_inv)):
+                                
+                                #print(f'final: {entities_f[i]}')
+                                #print(entities_i == entities_f[i])
 
-                            #print(f'{np.all(entities_f == entities_i[i], axis=1)}')
-                            #print(ads_ids[sites_inv[i]], idxs_of_matches)
+                                is_in_initial = np.any(np.all(entities_i == entities_f[i], axis=1))
+                                if (not is_in_initial) and (entities_f[i,1] != 0):
+                                    if free_slot_idxs[entities_f[i, 0] - 1] == 0:
+                                        self.id_counter += 1
+                                        free_slot_idxs[entities_f[i, 0] - 1] = self.id_counter
+                                    ads_changes[i] = free_slot_idxs[entities_f[i, 0] - 1]
 
-                        free_slot_idxs = np.zeros(len(sites_inv), dtype=int)
-                        for i in range(len(sites_inv)):
-                            
-                            #print(f'final: {entities_f[i]}')
-                            #print(entities_i == entities_f[i])
+                                #print(f'{is_in_initial}')
 
-                            is_in_initial = np.any(np.all(entities_i == entities_f[i], axis=1))
-                            if (not is_in_initial) and (entities_f[i,1] != 0):
-                                if free_slot_idxs[entities_f[i, 0] - 1] == 0:
-                                    self.id_counter += 1
-                                    free_slot_idxs[entities_f[i, 0] - 1] = self.id_counter
-                                ads_changes[i] = free_slot_idxs[entities_f[i, 0] - 1]
+                            ads_ids[sites_inv] = ads_changes
+                            #print(ads_ids[sites_inv])
 
-                            #print(f'{is_in_initial}')
-
-                        ads_ids[sites_inv] = ads_changes
-                        #print(ads_ids[sites_inv])
-
-                        # Append changes to deltas
-                        self.delta_states.append( np.array([sites_inv, occs, dents, ads_ids[sites_inv]]) )
-                        for gas_species in self.gas_species_names:
-                            self.gas_species_changes[gas_species][k-1] = self.reactions_gas[reaction_name][gas_species]
+                            # Append changes to deltas
+                            self.delta_states.append( np.array([sites_inv, occs, dents, ads_ids[sites_inv]]) )
+                            for gas_species in self.gas_species_names:
+                                self.gas_species_changes[gas_species][k-1] = self.reactions_gas[reaction_name][gas_species]
 
                     is_loaded = True
 
